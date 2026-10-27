@@ -63,14 +63,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> "OptionsFlowHandler":
-        return OptionsFlowHandler(config_entry)
+        return OptionsFlowHandler()
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Allow changing the port, IMEI, PIN, poll interval and upstream after setup."""
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        self.config_entry = config_entry
+    def __init__(self) -> None:
+        pass
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None:
