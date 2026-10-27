@@ -169,6 +169,160 @@ class InjectionSession:
         return {"success": res_code == 0, "setting_id": setting_id, "sub_id": sub_id, "result_code": res_code}
 
 
+# --- firmware / file-transfer capture ------------------------------------
+# Frames that carry files/firmware over the Vega binary channel. GET_DEV_INF
+# (0x0A/0x0B) is deliberately NOT here: it is routine device-info polling, tens
+# of thousands of frames. These only ever appear on the proxy relay path, so
+# capture is inherently proxy-only.
+#
+# The internal payload layout of these frames is NOT reverse-engineered (neither
+# the JADX audit nor the official rev11 doc describe per-chunk offset/name
+# headers), so we never try to be clever: every payload is recorded losslessly
+# as hex in a .jsonl, and the raw payload bytes are also concatenated best-effort
+# into a .payloads.bin. The .jsonl is the source of truth; the .bin may contain
+# small per-chunk headers we cannot strip.
+FIRMWARE_CMDS = {0x03, 0x04, 0x08, 0x09, 0x13, 0x14}
+_FW_CMD_NAMES = {
+    0x03: "FILE_CHUNK", 0x04: "FILE_CHUNK_ANS",
+    0x08: "GET_FILE", 0x09: "GET_FILE_ANS",
+    0x13: "FILE_WHOLLY", 0x14: "FILE_WHOLLY_ANS",
+}
+_FW_IDLE_FINALIZE_SEC = 20.0  # a transfer is "done" after this quiet gap
+
+
+class _FileCapture:
+    """Captures Vega file/firmware frames to disk and notifies via Home Assistant.
+
+    Called from the event loop for every FIRMWARE_CMDS frame seen on the relay.
+    A "transfer" is a burst of such frames; it is finalized after a quiet gap,
+    which computes size + sha256 (off-loop) and raises a completion notification.
+    """
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+        self._dir = hass.config.path("vega_filecap")
+        self._active = False
+        self._base: str | None = None
+        self._jsonl = None
+        self._binf = None
+        self._frames = 0
+        self._bytes = 0
+        self._kinds: set[str] = set()
+        self._first_ts: str | None = None
+        self._imei = "unknown"
+        self._finalize_handle = None  # asyncio.TimerHandle
+
+    def feed(self, direction: str, cmd: int, payload: bytes, imei: str) -> None:
+        now = time.time()
+        if not self._active:
+            self._imei = imei or "unknown"
+            self._start(now)
+            if not self._active:
+                return
+        name = _FW_CMD_NAMES.get(cmd, f"0x{cmd:02X}")
+        try:
+            self._jsonl.write(json.dumps(
+                {"ts": now, "dir": direction, "cmd": cmd, "cmd_name": name,
+                 "len": len(payload), "hex": payload.hex()},
+                ensure_ascii=False) + "\n")
+            self._jsonl.flush()
+            self._binf.write(payload)
+            self._binf.flush()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Vega filecap: write failed: %s", err)
+        self._frames += 1
+        self._bytes += len(payload)
+        self._kinds.add(name)
+        if self._finalize_handle is not None:
+            self._finalize_handle.cancel()
+        self._finalize_handle = self.hass.loop.call_later(_FW_IDLE_FINALIZE_SEC, self._finalize)
+
+    def _start(self, now: float) -> None:
+        try:
+            os.makedirs(self._dir, exist_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
+        self._first_ts = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
+        self._base = os.path.join(self._dir, f"vega_file_{self._imei}_{self._first_ts}")
+        try:
+            self._jsonl = open(self._base + ".jsonl", "a", encoding="utf-8")
+            self._binf = open(self._base + ".payloads.bin", "ab")
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Vega filecap: cannot open capture files: %s", err)
+            self._jsonl = self._binf = None
+            return
+        self._active = True
+        self._frames = 0
+        self._bytes = 0
+        self._kinds = set()
+        _LOGGER.warning(
+            "Vega: FILE/FIRMWARE transfer with cloud STARTED; capturing to %s.*", self._base)
+        self._notify(
+            "vega_filecap_" + self._imei,
+            "Vega: файловый обмен (возможно прошивка)",
+            "Начался файловый обмен трекера Vega с облаком — идёт захват.\n"
+            f"Файлы: `{self._base}.jsonl` и `.payloads.bin`.",
+        )
+
+    def _finalize(self) -> None:
+        self._finalize_handle = None
+        if not self._active:
+            return
+        self._active = False
+        jf, bf = self._jsonl, self._binf
+        self._jsonl = self._binf = None
+        for f in (jf, bf):
+            try:
+                if f:
+                    f.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self.hass.async_create_task(self._finalize_async(
+            self._base, self._imei, self._frames, self._bytes,
+            sorted(self._kinds), self._first_ts))
+
+    async def _finalize_async(self, base, imei, frames, nbytes, kinds, first_ts) -> None:
+        size, digest = await self.hass.async_add_executor_job(self._digest, f"{base}.payloads.bin")
+        _LOGGER.warning(
+            "Vega: FILE/FIRMWARE transfer CAPTURED: %d frames, %d payload bytes, "
+            "bin=%d B sha256=%s kinds=%s files=%s.*",
+            frames, nbytes, size, digest, ",".join(kinds), base)
+        self._notify(
+            "vega_filecap_" + imei,
+            "Vega: файловый обмен завершён",
+            "Файловый обмен трекера Vega с облаком завершён.\n"
+            f"Кадры: {', '.join(kinds)}\n"
+            f"Кадров: {frames}, payload: {nbytes} Б, bin: {size} Б\n"
+            f"sha256: `{digest}`\n"
+            f"Начало: {first_ts}\n"
+            f"Файлы: `{base}.jsonl`, `{base}.payloads.bin`\n"
+            "⚠️ bin — best-effort конкатенация payload'ов (layout файловых кадров не вскрыт); "
+            "для точной сборки — jsonl.",
+        )
+
+    @staticmethod
+    def _digest(binpath: str):
+        import hashlib
+        h = hashlib.sha256()
+        size = 0
+        try:
+            with open(binpath, "rb") as f:
+                for blk in iter(lambda: f.read(65536), b""):
+                    h.update(blk)
+                    size += len(blk)
+            return size, h.hexdigest()
+        except Exception:  # noqa: BLE001
+            return size, ""
+
+    def _notify(self, nid: str, title: str, message: str) -> None:
+        try:
+            from homeassistant.components import persistent_notification
+            persistent_notification.async_create(
+                self.hass, message, title=title, notification_id=nid)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Vega filecap: notify failed: %s", err)
+
+
 class VegaRuntime:
     """Owns the listener, the telemetry snapshot and the command path."""
 
@@ -220,6 +374,7 @@ class VegaRuntime:
         self._scripts_lock = asyncio.Lock()
         self._scenarios: list[dict] = []
         self._scenario_read_at: str | None = None
+        self._filecap = _FileCapture(hass)  # firmware/file-transfer catcher (proxy path)
 
     @property
     def _auth_pin(self) -> str:
@@ -593,6 +748,9 @@ class VegaRuntime:
 
     def _capture(self, direction: str, cmd: int, payload: bytes, inject: "InjectionSession | None" = None) -> None:
         _LOGGER.debug("Vega capture [%s]: cmd=0x%02X len=%d", direction, cmd, len(payload))
+        if cmd in FIRMWARE_CMDS:
+            # File/firmware frame (either direction) — capture losslessly + notify.
+            self._filecap.feed(direction, cmd, payload, self.imei)
         # Log the full bytes of cloud->tracker COMMAND frames so we can see exactly
         # what the Evolute cloud sends for each app action (lock/unlock/etc).
         if direction == "c2t" and cmd == protocol.CMD_COMMAND:
