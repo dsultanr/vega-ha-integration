@@ -657,6 +657,19 @@ class VegaRuntime:
         # the tracker (shared writer, locked) and matches replies in the t2c pipe.
         tracker_lock = asyncio.Lock()
         inject = InjectionSession(writer, tracker_lock)
+        # A tracker that reconnects (cellular) often leaves its previous TCP
+        # half-open and ESTABLISHED on our side, so relays overlap. Close the
+        # previous session's tracker connection before taking over. Otherwise the
+        # newer relay overwrites self._inject_session and, when IT ends, nulls it
+        # while the OLDER relay is still alive — leaving a live-but-unreferenced
+        # session so async_send_command sees None and fails "no active Vega session"
+        # even though telemetry (older poll loop) keeps flowing.
+        prev = self._inject_session
+        if prev is not None and prev is not inject:
+            try:
+                prev.writer.close()
+            except Exception:  # noqa: BLE001
+                pass
         self._inject_session = inject
         poll_task = self.hass.async_create_background_task(
             self._inject_poll_loop(inject), name="vega_inject_poll"
