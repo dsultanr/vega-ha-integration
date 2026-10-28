@@ -210,6 +210,7 @@ class _FileCapture:
         self._kinds: set[str] = set()
         self._first_ts: str | None = None
         self._imei = "unknown"
+        self._seq = 0  # disambiguates transfers that start within the same second
         self._finalize_handle = None  # asyncio.TimerHandle
 
     def feed(self, direction: str, cmd: int, payload: bytes, imei: str) -> None:
@@ -243,7 +244,9 @@ class _FileCapture:
         except Exception:  # noqa: BLE001
             pass
         self._first_ts = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
-        self._base = os.path.join(self._dir, f"vega_file_{self._imei}_{self._first_ts}")
+        self._seq += 1
+        self._base = os.path.join(
+            self._dir, f"vega_file_{self._imei}_{self._first_ts}_{self._seq:03d}")
         try:
             self._jsonl = open(self._base + ".jsonl", "a", encoding="utf-8")
             self._binf = open(self._base + ".payloads.bin", "ab")
