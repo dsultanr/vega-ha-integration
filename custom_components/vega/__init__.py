@@ -32,6 +32,8 @@ from .const import (
     CONF_PROXY_MODE,
     CONF_UPSTREAM_HOST,
     CONF_UPSTREAM_PORT,
+    CONF_LOG_DOWNLINK,
+    DEFAULT_LOG_DOWNLINK,
     DEFAULT_DIRECT_CONTROL,
     DEFAULT_IMEI,
     DEFAULT_PIN,
@@ -192,6 +194,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         learned_pin=_opt(entry, CONF_LEARNED_PIN, None),
         learned_imei=_opt(entry, CONF_LEARNED_IMEI, ""),
         persist_cb=_persist,
+        log_downlink=bool(_opt(entry, CONF_LOG_DOWNLINK, DEFAULT_LOG_DOWNLINK)),
     )
 
     coordinator = VegaCoordinator(hass, runtime, imei, entry.title or f"Vega {imei}")
@@ -291,6 +294,7 @@ async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     runtime.direct_control = bool(_opt(entry, CONF_DIRECT_CONTROL, DEFAULT_DIRECT_CONTROL))
     runtime.proxy_mode = bool(_opt(entry, CONF_PROXY_MODE, DEFAULT_PROXY_MODE))
     runtime.poll_interval = int(_opt(entry, CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
+    runtime.log_downlink = bool(_opt(entry, CONF_LOG_DOWNLINK, DEFAULT_LOG_DOWNLINK))
 
     # Port or upstream change requires restarting the TCP listener
     new_port = int(_opt(entry, CONF_PORT, DEFAULT_PORT))

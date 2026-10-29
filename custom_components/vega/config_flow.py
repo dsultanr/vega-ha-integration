@@ -18,6 +18,8 @@ from .const import (
     CONF_PORT,
     CONF_UPSTREAM_HOST,
     CONF_UPSTREAM_PORT,
+    CONF_LOG_DOWNLINK,
+    DEFAULT_LOG_DOWNLINK,
     DEFAULT_IMEI,
     DEFAULT_PIN,
     DEFAULT_PIN2,
@@ -92,6 +94,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(CONF_POLL_INTERVAL, default=current.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)): vol.All(int, vol.Range(min=5, max=3600)),
                 vol.Optional(CONF_UPSTREAM_HOST, default=current.get(CONF_UPSTREAM_HOST, DEFAULT_UPSTREAM_HOST)): str,
                 vol.Optional(CONF_UPSTREAM_PORT, default=current.get(CONF_UPSTREAM_PORT, DEFAULT_UPSTREAM_PORT)): vol.All(int, vol.Range(min=1, max=65535)),
+                vol.Optional(CONF_LOG_DOWNLINK, default=current.get(CONF_LOG_DOWNLINK, DEFAULT_LOG_DOWNLINK)): bool,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

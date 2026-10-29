@@ -1,0 +1,245 @@
+[
+ {
+  "seq": 4,
+  "type": "keepalive"
+ },
+ {
+  "crc": "3fb2",
+  "messages": [
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 142,
+       "course": 348,
+       "hdop": 0.62,
+       "lat": 54.970056,
+       "lon": 36.726528,
+       "sats": 20,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 30,
+        "sensor_type": 0,
+        "value": 5
+       },
+       {
+        "exp": 0,
+        "id": 1252,
+        "sensor_type": 8,
+        "value": 12.869999885559082
+       },
+       {
+        "exp": 0,
+        "id": 1253,
+        "sensor_type": 8,
+        "value": 0.019999999552965164
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 28
+       },
+       {
+        "exp": 0,
+        "id": 2800,
+        "sensor_type": 1,
+        "value": 7576
+       },
+       {
+        "exp": 0,
+        "id": 2803,
+        "sensor_type": 0,
+        "value": 39
+       },
+       {
+        "exp": 0,
+        "id": 2804,
+        "sensor_type": 0,
+        "value": 50
+       },
+       {
+        "exp": 0,
+        "id": 2806,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2807,
+        "sensor_type": 0,
+        "value": 252
+       },
+       {
+        "exp": 0,
+        "id": 2811,
+        "sensor_type": 0,
+        "value": 83
+       },
+       {
+        "exp": 0,
+        "id": 2812,
+        "sensor_type": 1,
+        "value": 508
+       },
+       {
+        "exp": 0,
+        "id": 2813,
+        "sensor_type": 0,
+        "value": 3
+       },
+       {
+        "exp": 0,
+        "id": 2816,
+        "sensor_type": 4,
+        "value": 16
+       },
+       {
+        "exp": 0,
+        "id": 2817,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 2830,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 2831,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2832,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2833,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2834,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2836,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2843,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2898,
+        "sensor_type": 4,
+        "value": 21
+       },
+       {
+        "exp": 0,
+        "id": 2901,
+        "sensor_type": 4,
+        "value": 23
+       },
+       {
+        "exp": 0,
+        "id": 2902,
+        "sensor_type": 4,
+        "value": 23
+       },
+       {
+        "exp": 0,
+        "id": 2906,
+        "sensor_type": 8,
+        "value": 24.0
+       },
+       {
+        "exp": 0,
+        "id": 2907,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2910,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2912,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2913,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2914,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2916,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2917,
+        "sensor_type": 4,
+        "value": 23
+       },
+       {
+        "exp": 0,
+        "id": 2918,
+        "sensor_type": 0,
+        "value": 4
+       },
+       {
+        "exp": 0,
+        "id": 2920,
+        "sensor_type": 4,
+        "value": 16
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T13:13:19Z"
+   }
+  ],
+  "seq": 5,
+  "type": "data"
+ }
+]

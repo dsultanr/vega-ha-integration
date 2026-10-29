@@ -5,12 +5,10 @@
         "title": "Vega MT X CAN",
         "description": "The Vega tracker connects to this Home Assistant host directly. Point the tracker's Setting 3001 server slot to this host and the port below. Commands are OFF by default — no setting is written to the vehicle until you enable them in the integration options.",
         "data": {
-          "imei": "Tracker IMEI",
-          "port": "Listen Port",
-          "pin": "Server 1 PIN",
-          "pin2": "Server 2 PIN (fallback)",
-          "poll_interval": "Telemetry Poll Interval (s)",
-          "commands_enabled": "Enable commands (writes to vehicle)"
+          "port": "Listen port",
+          "imei": "Tracker IMEI (optional; learned automatically)",
+          "upstream_host": "Evolute cloud host (proxy upstream)",
+          "upstream_port": "Evolute cloud port"
         }
       }
     },
@@ -23,11 +21,17 @@
       "init": {
         "title": "Vega options",
         "data": {
-          "port": "Listen Port",
-          "pin": "Server 1 PIN",
-          "pin2": "Server 2 PIN (fallback)",
-          "poll_interval": "Telemetry Poll Interval (s)",
-          "commands_enabled": "Enable commands (writes to vehicle)"
+          "port": "Listen port",
+          "imei": "Tracker IMEI",
+          "pin": "Server PIN",
+          "pin2": "Server PIN (fallback)",
+          "poll_interval": "Telemetry poll interval (s)",
+          "upstream_host": "Evolute cloud host (proxy upstream)",
+          "upstream_port": "Evolute cloud port",
+          "log_downlink": "Log HA → tracker packets"
+        },
+        "data_description": {
+          "log_downlink": "Fire a vega_downlink event for every frame sent to the tracker — both HA's own (commands/queries) and cloud frames relayed through the proxy. Events are stored by the recorder (see Developer Tools → Events / Logbook) and kept for the recorder's global purge_keep_days. Off by default."
         }
       }
     }

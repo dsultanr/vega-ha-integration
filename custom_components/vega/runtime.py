@@ -18,8 +18,8 @@ from typing import Any, Callable
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from . import protocol
-from .const import DEFAULT_IMEI, ONLINE_TIMEOUT, SENSOR_KEY_MAP
+from . import combine, protocol
+from .const import DEFAULT_IMEI, DOWNLINK_EVENT, ONLINE_TIMEOUT, SENSOR_KEY_MAP
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,12 +61,15 @@ class VegaSession:
         self.req_counter = 1000
         self.pending_requests: dict[int, asyncio.Future] = {}
         self.retried_pin = False
+        self.downlink_cb = None  # optional: called with every frame sent to the tracker
 
     def get_next_req_id(self) -> int:
         self.req_counter = (self.req_counter + 1) & 0x7FFFFFFF
         return self.req_counter
 
     async def send_raw(self, data: bytes) -> None:
+        if self.downlink_cb is not None:
+            self.downlink_cb(data)
         self.writer.write(data)
         await self.writer.drain()
 
@@ -126,6 +129,7 @@ class InjectionSession:
         self.last_seen = time.time()
         self.req_counter = 0x50000000
         self.pending_requests: dict[int, asyncio.Future] = {}
+        self.downlink_cb = None  # optional: called with every frame injected to the tracker
 
     def get_next_req_id(self) -> int:
         self.req_counter = 0x50000000 | ((self.req_counter + 1) & 0x0FFFFFFF)
@@ -135,6 +139,8 @@ class InjectionSession:
         loop = asyncio.get_event_loop()
         future: asyncio.Future = loop.create_future()
         self.pending_requests[req_id] = future
+        if self.downlink_cb is not None:
+            self.downlink_cb(frame)
         async with self.lock:
             self.writer.write(frame)
             await self.writer.drain()
@@ -188,6 +194,23 @@ _FW_CMD_NAMES = {
     0x13: "FILE_WHOLLY", 0x14: "FILE_WHOLLY_ANS",
 }
 _FW_IDLE_FINALIZE_SEC = 20.0  # a transfer is "done" after this quiet gap
+
+# While Wialon Combine push has delivered telemetry this recently, the Vega
+# binary poll is skipped: the push already carries the sensor set, so polling
+# would be redundant tracker load and could make values flap between the two
+# decode paths. The S4 session itself stays up (Evolute proxy + on-demand
+# commands); only the periodic sensor query pauses.
+COMBINE_FRESH_SEC = 90.0
+
+# Upstream (Evolute cloud) resilience for the proxy path. When the upstream is
+# unreachable we must not spin: each tracker reconnect would otherwise pile up
+# an 8 s-hanging open_connection. After a failure we back off for
+# UPSTREAM_BACKOFF_SEC and skip the connect attempt; meanwhile, if direct
+# control is on we serve the tracker locally (telemetry + commands keep working,
+# only the cloud relay pauses), else we hold the connection UPSTREAM_THROTTLE_SEC
+# before closing so the tracker's reconnects are spaced, not a storm.
+UPSTREAM_BACKOFF_SEC = 20.0
+UPSTREAM_THROTTLE_SEC = 5.0
 
 
 class _FileCapture:
@@ -343,6 +366,7 @@ class VegaRuntime:
         learned_pin: str | None = None,
         learned_imei: str = "",
         persist_cb: Callable[[dict], None] | None = None,
+        log_downlink: bool = False,
     ) -> None:
         self.hass = hass
         self.imei = imei
@@ -366,6 +390,9 @@ class VegaRuntime:
 
         self._vega_sessions: dict[Any, VegaSession] = {}
         self._wialon_last_seen: float = 0.0
+        self._combine_last_seen: float = 0.0
+        self._upstream_fail_at: float = 0.0  # proxy upstream backoff clock
+        self.log_downlink = log_downlink
         self._wialon_imei: str = learned_imei or ""
 
         self._sensors: dict[str, Any] = {}  # state_key -> value
@@ -432,7 +459,7 @@ class VegaRuntime:
         last_vega = max((s.last_seen for s in self._vega_sessions.values()), default=0.0)
         if self._inject_session:
             last_vega = max(last_vega, self._inject_session.last_seen)
-        last_seen = max(last_vega, self._wialon_last_seen)
+        last_seen = max(last_vega, self._wialon_last_seen, self._combine_last_seen)
         is_online = (now - last_seen) < ONLINE_TIMEOUT if last_seen else False
 
         data: dict[str, Any] = {}
@@ -516,24 +543,36 @@ class VegaRuntime:
             await self._handle_vega(reader, writer, initial)
 
     async def _handle_combine(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, initial: bytes) -> None:
-        """Stub for Wialon Combine (0x24 0x24).
+        """Wialon Combine (0x24 0x24) server: decode telemetry, send accept-ACKs.
 
-        Combine is not decoded here yet (the integration expects a Wialon IPS +
-        Vega binary tracker). This branch exists only to recognise Combine and
-        keep it off the Vega binary path, where its bytes would be mis-parsed. It
-        drains the connection quietly (no ACKs) instead of corrupting a session.
+        The tracker's S1 slot speaks Wialon Combine. We frame the stream, decode
+        login / data / keep-alive, push position + sensors into the snapshot, and
+        answer every login/data/keep-alive with a 5-byte accept-ACK (40 40 00 seq)
+        so the tracker advances instead of retransmitting. The only bytes we ever
+        send back are that ACK — Combine is a telemetry-only channel here.
         """
         peer = writer.get_extra_info("peername")
-        _LOGGER.warning(
-            "Vega: Wialon Combine connection from %s is not supported (stub); draining. "
-            "Point the tracker's telemetry slot at Wialon IPS (0x02) instead.", peer
-        )
+        _LOGGER.info("Vega Combine session from %s", peer)
+        stream = combine.Stream()
+        if initial:
+            stream.write(initial)
+
+        async def _drain_frames() -> None:
+            for pkt in stream.frames():
+                await self._combine_packet(writer, pkt)
+
         try:
+            await _drain_frames()  # frames already carried in `initial`
             while True:
-                if not await reader.read(4096):
+                chunk = await reader.read(4096)
+                if not chunk:
                     break
-        except Exception:  # noqa: BLE001
-            pass
+                self._combine_last_seen = time.time()
+                stream.write(chunk)
+                await _drain_frames()
+                self._publish()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Vega Combine: connection error from %s: %s", peer, err)
         finally:
             try:
                 writer.close()
@@ -541,10 +580,103 @@ class VegaRuntime:
             except Exception:  # noqa: BLE001
                 pass
 
+    async def _combine_packet(self, writer: asyncio.StreamWriter, pkt: dict) -> None:
+        """ACK one decoded Combine packet and ingest its telemetry."""
+        ptype = pkt.get("type")
+        # Accept login / data / keep-alive (NOT the tracker's own ack frame).
+        if ptype in ("login", "data", "keepalive"):
+            try:
+                writer.write(combine.encode_ack(pkt["seq"]))
+                await writer.drain()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Vega Combine: ACK write failed: %s", err)
+        if ptype == "login":
+            imei = (pkt.get("login") or {}).get("id")
+            if imei and imei != DEFAULT_IMEI:
+                self._wialon_imei = imei
+                self._learn(imei=imei)
+            return
+        if ptype != "data":
+            return
+        for msg in pkt.get("messages", []):
+            for rec in msg.get("records", []):
+                pos = rec.get("position")
+                if pos:
+                    self._ingest_combine_position(pos)
+                for p in rec.get("params", []) or []:
+                    self._ingest_combine_param(p)
+
+    def _ingest_combine_position(self, pos: dict) -> None:
+        mapping = {"lat": "latitude", "lon": "longitude", "speed": "speed",
+                   "course": "course", "alt": "altitude", "sats": "satellites", "hdop": "hdop"}
+        for src, dst in mapping.items():
+            val = pos.get(src)
+            if val is not None:
+                self._position[dst] = val
+
+    def _ingest_combine_param(self, p: dict) -> None:
+        sid = p.get("id")
+        sdef = protocol.SENSOR_DEFS.get(sid)
+        if sdef is None or "value" not in p:
+            return
+        value = p["value"]
+        stype = sdef.get("type")
+        if stype == "bool":
+            value = bool(value)
+        elif stype == "int":
+            try:
+                value = int(value)
+            except (TypeError, ValueError):
+                return
+        elif stype == "float":
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                return
+        # One ingest path (applies SENSOR_KEY_MAP + the central_lock inversion).
+        self._ingest_sensor({"name": sdef["name"], "value": value})
+
+    def _combine_fresh(self) -> bool:
+        """True while Wialon Combine push has recently supplied telemetry.
+
+        Used to pause the Vega-binary sensor poll (poll-free mode) without
+        tearing down the S4 session, which stays up for the Evolute proxy and
+        on-demand commands.
+        """
+        return (time.time() - self._combine_last_seen) < COMBINE_FRESH_SEC
+
+    # --- optional downlink (HA -> tracker) packet log ------------------------
+
+    def _ha_downlink(self, frame: bytes) -> None:
+        """Sink for HA-originated frames (inject/direct sessions)."""
+        self._log_downlink("ha", frame, None)
+
+    def _log_downlink(self, origin: str, data: bytes, peer) -> None:
+        """Fire a vega_downlink event for one frame sent to the tracker.
+
+        origin: 'ha' (our inject/direct frames) or 'proxy' (cloud frames relayed
+        through us). No-op unless log_downlink is enabled. The Recorder persists
+        the event and keeps it for its global purge_keep_days.
+        """
+        if not self.log_downlink or not data:
+            return
+        try:
+            self.hass.bus.async_fire(DOWNLINK_EVENT, {
+                "origin": origin,
+                "imei": self.imei,
+                "cmd": data[2] if len(data) >= 3 else None,
+                "length": len(data),
+                "hex": data.hex(),
+                "peer": str(peer) if peer else None,
+            })
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Vega downlink log failed: %s", err)
+
     # --- Vega binary ---------------------------------------------------------
 
     async def _handle_vega(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, initial: bytes) -> None:
         session = VegaSession(writer)
+        session.downlink_cb = self._ha_downlink  # log HA frames to the tracker (direct)
         peer = session.peer
         self._vega_sessions[peer] = session
         _LOGGER.info("Vega binary session from %s", peer)
@@ -617,6 +749,32 @@ class VegaRuntime:
 
     # --- proxy / onboarding (MITM relay + learn PIN/IMEI) --------------------
 
+    async def _proxy_degrade(self, reader, writer, initial: bytes, peer, reason: str) -> None:
+        """Handle a tracker connection when the cloud upstream is unavailable.
+
+        With direct control on we terminate locally (the tracker is served with
+        the known PIN, telemetry + commands keep working; only the Evolute relay
+        pauses until the upstream recovers). Otherwise we hold the connection a
+        few seconds before closing so a fast-reconnecting tracker is throttled
+        instead of spinning HA with back-to-back connects.
+        """
+        if self.direct_control:
+            _LOGGER.warning("Vega proxy: upstream %s (%s); serving %s locally (direct control).",
+                            self.upstream, reason, peer)
+            await self._handle_vega(reader, writer, bytes(initial))
+            return
+        _LOGGER.warning("Vega proxy: upstream %s (%s); throttling %s for %ss then closing.",
+                        self.upstream, reason, peer, UPSTREAM_THROTTLE_SEC)
+        try:
+            await asyncio.sleep(UPSTREAM_THROTTLE_SEC)
+        except asyncio.CancelledError:
+            raise
+        finally:
+            try:
+                writer.close()
+            except Exception:  # noqa: BLE001
+                pass
+
     async def _handle_vega_proxy(self, reader, writer, initial: bytes) -> None:
         """Transparently relay a Vega connection to the cloud and learn PIN/IMEI.
 
@@ -634,17 +792,21 @@ class VegaRuntime:
             except Exception:  # noqa: BLE001
                 pass
             return
+        if time.time() - self._upstream_fail_at < UPSTREAM_BACKOFF_SEC:
+            # Upstream is in a known-bad window: don't attempt another 8 s-hanging
+            # open that would pile up on every tracker reconnect — degrade now.
+            await self._proxy_degrade(reader, writer, initial, peer, "backoff")
+            return
         try:
             up_reader, up_writer = await asyncio.wait_for(
                 asyncio.open_connection(*self.upstream), timeout=8
             )
         except Exception as err:  # noqa: BLE001
+            self._upstream_fail_at = time.time()
             _LOGGER.warning("Vega proxy: upstream %s unreachable: %s", self.upstream, err)
-            try:
-                writer.close()
-            except Exception:  # noqa: BLE001
-                pass
+            await self._proxy_degrade(reader, writer, initial, peer, "unreachable")
             return
+        self._upstream_fail_at = 0.0  # upstream healthy again
         _LOGGER.info(
             "Vega proxy: relaying %s <-> %s:%s (direct_control=%s)",
             peer, *self.upstream, self.direct_control,
@@ -657,6 +819,7 @@ class VegaRuntime:
         # the tracker (shared writer, locked) and matches replies in the t2c pipe.
         tracker_lock = asyncio.Lock()
         inject = InjectionSession(writer, tracker_lock)
+        inject.downlink_cb = self._ha_downlink  # log HA-injected frames to the tracker
         # A tracker that reconnects (cellular) often leaves its previous TCP
         # half-open and ESTABLISHED on our side, so relays overlap. Close the
         # previous session's tracker connection before taking over. Otherwise the
@@ -707,6 +870,7 @@ class VegaRuntime:
                     async with tracker_lock:
                         writer.write(chunk)
                         await writer.drain()
+                    self._log_downlink("proxy", chunk, peer)  # cloud -> tracker, relayed
                     pbuf.extend(chunk)
                     for cmd, payload in protocol.iter_frames(pbuf):
                         self._capture("c2t", cmd, payload, inject)
@@ -747,6 +911,10 @@ class VegaRuntime:
 
         while True:
             try:
+                if self._combine_fresh():
+                    # Combine push is supplying telemetry; don't poll over S4.
+                    await asyncio.sleep(self.poll_interval)
+                    continue
                 changed = False
                 for sid in protocol.SENSOR_DEFS:
                     sensor = await inject.query_sensor(sid, 0)
@@ -894,11 +1062,13 @@ class VegaRuntime:
                 session = self._active_vega_session()
                 if session is not None:
                     changed = False
-                    for sid in protocol.SENSOR_DEFS:
-                        sensor = await session.query_sensor(sid, 0)
-                        if sensor is not None:
-                            self._ingest_sensor(sensor)
-                            changed = True
+                    if not self._combine_fresh():
+                        # Combine push covers sensors; skip the redundant poll.
+                        for sid in protocol.SENSOR_DEFS:
+                            sensor = await session.query_sensor(sid, 0)
+                            if sensor is not None:
+                                self._ingest_sensor(sensor)
+                                changed = True
                     if self.direct_control:
                         await self._remote_state_watchdog(session)
                     if changed:

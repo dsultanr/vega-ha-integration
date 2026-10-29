@@ -1,0 +1,1623 @@
+[
+ {
+  "crc": "b52d",
+  "messages": [
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 30,
+        "sensor_type": 0,
+        "value": 5
+       },
+       {
+        "exp": 0,
+        "id": 1252,
+        "sensor_type": 8,
+        "value": 12.640000343322754
+       },
+       {
+        "exp": 0,
+        "id": 1253,
+        "sensor_type": 8,
+        "value": 0.019999999552965164
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 17
+       },
+       {
+        "exp": 0,
+        "id": 2800,
+        "sensor_type": 1,
+        "value": 7552
+       },
+       {
+        "exp": 0,
+        "id": 2803,
+        "sensor_type": 0,
+        "value": 59
+       },
+       {
+        "exp": 0,
+        "id": 2804,
+        "sensor_type": 0,
+        "value": 77
+       },
+       {
+        "exp": 0,
+        "id": 2806,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2807,
+        "sensor_type": 0,
+        "value": 252
+       },
+       {
+        "exp": 0,
+        "id": 2811,
+        "sensor_type": 0,
+        "value": 81
+       },
+       {
+        "exp": 0,
+        "id": 2812,
+        "sensor_type": 1,
+        "value": 508
+       },
+       {
+        "exp": 0,
+        "id": 2813,
+        "sensor_type": 0,
+        "value": 3
+       },
+       {
+        "exp": 0,
+        "id": 2816,
+        "sensor_type": 4,
+        "value": 16
+       },
+       {
+        "exp": 0,
+        "id": 2817,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 2830,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 2831,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2832,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2833,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2834,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2836,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2843,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2898,
+        "sensor_type": 4,
+        "value": 22
+       },
+       {
+        "exp": 0,
+        "id": 2901,
+        "sensor_type": 4,
+        "value": 23
+       },
+       {
+        "exp": 0,
+        "id": 2902,
+        "sensor_type": 4,
+        "value": 23
+       },
+       {
+        "exp": 0,
+        "id": 2906,
+        "sensor_type": 8,
+        "value": 24.0
+       },
+       {
+        "exp": 0,
+        "id": 2907,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2910,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2912,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2913,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2914,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2916,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2917,
+        "sensor_type": 4,
+        "value": 23
+       },
+       {
+        "exp": 0,
+        "id": 2918,
+        "sensor_type": 0,
+        "value": 4
+       },
+       {
+        "exp": 0,
+        "id": 2920,
+        "sensor_type": 4,
+        "value": 16
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:49:49Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2816,
+        "sensor_type": 4,
+        "value": 15
+       },
+       {
+        "exp": 0,
+        "id": 2830,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2843,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 2918,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2920,
+        "sensor_type": 4,
+        "value": 15
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:52:16Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2816,
+        "sensor_type": 4,
+        "value": 16
+       },
+       {
+        "exp": 0,
+        "id": 2836,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 2918,
+        "sensor_type": 0,
+        "value": 4
+       },
+       {
+        "exp": 0,
+        "id": 2920,
+        "sensor_type": 4,
+        "value": 16
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:52:17Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 14
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:52:24Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 15
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:52:30Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 14
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:52:39Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2831,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 2843,
+        "sensor_type": 0,
+        "value": 0
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:52:43Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 16
+       },
+       {
+        "exp": 0,
+        "id": 2831,
+        "sensor_type": 0,
+        "value": 0
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:52:44Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2831,
+        "sensor_type": 0,
+        "value": 1
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:01Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2834,
+        "sensor_type": 0,
+        "value": 1
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:03Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 17
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:04Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2836,
+        "sensor_type": 0,
+        "value": 0
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:05Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 18
+       },
+       {
+        "exp": 0,
+        "id": 2834,
+        "sensor_type": 0,
+        "value": 0
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:09Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 30,
+        "sensor_type": 0,
+        "value": 5
+       },
+       {
+        "exp": 0,
+        "id": 1252,
+        "sensor_type": 8,
+        "value": 12.329999923706055
+       },
+       {
+        "exp": 0,
+        "id": 1253,
+        "sensor_type": 8,
+        "value": 0.029999999329447746
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 18
+       },
+       {
+        "exp": 0,
+        "id": 2800,
+        "sensor_type": 1,
+        "value": 7552
+       },
+       {
+        "exp": 0,
+        "id": 2803,
+        "sensor_type": 0,
+        "value": 59
+       },
+       {
+        "exp": 0,
+        "id": 2804,
+        "sensor_type": 0,
+        "value": 77
+       },
+       {
+        "exp": 0,
+        "id": 2806,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2807,
+        "sensor_type": 0,
+        "value": 252
+       },
+       {
+        "exp": 0,
+        "id": 2811,
+        "sensor_type": 0,
+        "value": 81
+       },
+       {
+        "exp": 0,
+        "id": 2812,
+        "sensor_type": 1,
+        "value": 508
+       },
+       {
+        "exp": 0,
+        "id": 2813,
+        "sensor_type": 0,
+        "value": 3
+       },
+       {
+        "exp": 0,
+        "id": 2816,
+        "sensor_type": 4,
+        "value": 16
+       },
+       {
+        "exp": 0,
+        "id": 2817,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 2830,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2831,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2832,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2833,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2834,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2836,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2843,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2898,
+        "sensor_type": 4,
+        "value": 22
+       },
+       {
+        "exp": 0,
+        "id": 2901,
+        "sensor_type": 4,
+        "value": 23
+       },
+       {
+        "exp": 0,
+        "id": 2902,
+        "sensor_type": 4,
+        "value": 23
+       },
+       {
+        "exp": 0,
+        "id": 2906,
+        "sensor_type": 8,
+        "value": 24.0
+       },
+       {
+        "exp": 0,
+        "id": 2907,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2910,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2912,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2913,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2914,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2916,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2917,
+        "sensor_type": 4,
+        "value": 23
+       },
+       {
+        "exp": 0,
+        "id": 2918,
+        "sensor_type": 0,
+        "value": 4
+       },
+       {
+        "exp": 0,
+        "id": 2920,
+        "sensor_type": 4,
+        "value": 16
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:13Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2831,
+        "sensor_type": 0,
+        "value": 0
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:13Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2912,
+        "sensor_type": 0,
+        "value": 0
+       },
+       {
+        "exp": 0,
+        "id": 2913,
+        "sensor_type": 0,
+        "value": 0
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:16Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2806,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 2843,
+        "sensor_type": 0,
+        "value": 1
+       },
+       {
+        "exp": 0,
+        "id": 2907,
+        "sensor_type": 0,
+        "value": 1
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:17Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2901,
+        "sensor_type": 4,
+        "value": 25
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:18Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2813,
+        "sensor_type": 0,
+        "value": 1
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:21Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 17
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:25Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2902,
+        "sensor_type": 4,
+        "value": 22
+       },
+       {
+        "exp": 0,
+        "id": 2917,
+        "sensor_type": 4,
+        "value": 22
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:26Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 16
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:30Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2813,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2843,
+        "sensor_type": 0,
+        "value": 0
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:36Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 17
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:39Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2830,
+        "sensor_type": 0,
+        "value": 1
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:41Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2804,
+        "sensor_type": 0,
+        "value": 76
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:42Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2800,
+        "sensor_type": 1,
+        "value": 7553
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:43Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 16
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:44Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 18
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:54Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 17
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:53:59Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2816,
+        "sensor_type": 4,
+        "value": 15
+       },
+       {
+        "exp": 0,
+        "id": 2920,
+        "sensor_type": 4,
+        "value": 15
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:54:07Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 20
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:54:09Z"
+   },
+   {
+    "records": [
+     {
+      "position": {
+       "alt": 0,
+       "course": 0,
+       "hdop": 1.49,
+       "lat": 0.0,
+       "lon": 0.0,
+       "sats": 0,
+       "speed": 0
+      },
+      "type": 1
+     },
+     {
+      "params": [
+       {
+        "exp": 0,
+        "id": 25,
+        "sensor_type": 0,
+        "value": 2
+       },
+       {
+        "exp": 0,
+        "id": 2005,
+        "sensor_type": 0,
+        "value": 23
+       }
+      ],
+      "type": 0
+     }
+    ],
+    "time": "2026-09-18T11:54:14Z"
+   }
+  ],
+  "seq": 1,
+  "type": "data"
+ }
+]

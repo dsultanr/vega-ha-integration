@@ -1,0 +1,9 @@
+{
+ "ack": {
+  "code": 0,
+  "command_type": 1
+ },
+ "crc": "4c6a",
+ "seq": 764,
+ "type": "ack"
+}

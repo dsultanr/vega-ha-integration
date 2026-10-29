@@ -45,6 +45,16 @@ DEFAULT_PIN2 = "0000"
 DEFAULT_IMEI = "000000000000000"
 DEFAULT_POLL_INTERVAL = 30
 
+# Optional downlink (HA -> tracker) packet logging to the HA event bus.
+# Off by default. Each frame HA sends to the tracker — both HA's own
+# (inject/direct) and cloud frames relayed through the proxy — is fired as a
+# `vega_downlink` event, which the Recorder persists in homeassistant_db and
+# shows in Logbook / Developer Tools -> Events. Retention follows the recorder's
+# global purge_keep_days.
+CONF_LOG_DOWNLINK = "log_downlink"
+DEFAULT_LOG_DOWNLINK = False
+DOWNLINK_EVENT = "vega_downlink"
+
 PLATFORMS = ["sensor", "binary_sensor", "button", "device_tracker", "switch"]
 
 # Command safety (mirrors the evolute button UX).

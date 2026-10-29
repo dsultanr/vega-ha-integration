@@ -35,6 +35,7 @@ except ImportError:
     const.DEFAULT_IMEI = "000000000000000"
     const.ONLINE_TIMEOUT = 180
     const.SENSOR_KEY_MAP = {}
+    const.DOWNLINK_EVENT = "vega_downlink"
     sys.modules[const.__name__] = const
 
 runtime_module = importlib.import_module(PACKAGE + ".runtime")

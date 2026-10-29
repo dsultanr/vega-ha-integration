@@ -1,0 +1,357 @@
+{
+ "crc": "75ac",
+ "messages": [
+  {
+   "records": [
+    {
+     "position": {
+      "alt": 830,
+      "course": 244,
+      "hdop": 0.89,
+      "lat": 55.3032,
+      "lon": 36.503188,
+      "sats": 9,
+      "speed": 95
+     },
+     "type": 1
+    },
+    {
+     "params": [
+      {
+       "exp": 0,
+       "id": 25,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 3,
+       "sensor_type": 10,
+       "text": "A011B08A7672M7_DS B08V04"
+      },
+      {
+       "exp": 0,
+       "id": 4,
+       "sensor_type": 10,
+       "text": "AXN_5.1.6_3333_19010218-0007-Quectel-L76L-1.0"
+      },
+      {
+       "exp": 0,
+       "id": 8,
+       "sensor_type": 10,
+       "text": "890000000000000000"
+      },
+      {
+       "exp": 0,
+       "id": 9,
+       "sensor_type": 2,
+       "value": 567343
+      },
+      {
+       "exp": 0,
+       "id": 11,
+       "sensor_type": 0,
+       "value": 1
+      },
+      {
+       "exp": 0,
+       "id": 30,
+       "sensor_type": 0,
+       "value": 5
+      },
+      {
+       "exp": 0,
+       "id": 109,
+       "sensor_type": 0,
+       "value": 12
+      },
+      {
+       "exp": 0,
+       "id": 110,
+       "sensor_type": 0,
+       "value": 9
+      },
+      {
+       "exp": 0,
+       "id": 113,
+       "sensor_type": 8,
+       "value": 7128.82861328125
+      },
+      {
+       "exp": 0,
+       "id": 114,
+       "sensor_type": 0,
+       "value": 1
+      },
+      {
+       "exp": 0,
+       "id": 1241,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 1250,
+       "sensor_type": 8,
+       "value": 34.0
+      },
+      {
+       "exp": 0,
+       "id": 1252,
+       "sensor_type": 8,
+       "value": 13.729999542236328
+      },
+      {
+       "exp": 0,
+       "id": 1253,
+       "sensor_type": 8,
+       "value": 0.019999999552965164
+      },
+      {
+       "exp": 0,
+       "id": 2005,
+       "sensor_type": 0,
+       "value": 13
+      }
+     ],
+     "type": 0
+    }
+   ],
+   "time": "2026-09-23T02:27:31Z"
+  },
+  {
+   "records": [
+    {
+     "position": {
+      "alt": 848,
+      "course": 244,
+      "hdop": 0.89,
+      "lat": 55.302776,
+      "lon": 36.502724,
+      "sats": 9,
+      "speed": 96
+     },
+     "type": 1
+    },
+    {
+     "params": [
+      {
+       "exp": 0,
+       "id": 25,
+       "sensor_type": 0,
+       "value": 1
+      },
+      {
+       "exp": 0,
+       "id": 30,
+       "sensor_type": 0,
+       "value": 5
+      },
+      {
+       "exp": 0,
+       "id": 1252,
+       "sensor_type": 8,
+       "value": 13.720000267028809
+      },
+      {
+       "exp": 0,
+       "id": 1253,
+       "sensor_type": 8,
+       "value": 0.019999999552965164
+      },
+      {
+       "exp": 0,
+       "id": 2005,
+       "sensor_type": 0,
+       "value": 13
+      },
+      {
+       "exp": 0,
+       "id": 2800,
+       "sensor_type": 1,
+       "value": 7658
+      },
+      {
+       "exp": 0,
+       "id": 2803,
+       "sensor_type": 0,
+       "value": 85
+      },
+      {
+       "exp": 0,
+       "id": 2804,
+       "sensor_type": 0,
+       "value": 102
+      },
+      {
+       "exp": 0,
+       "id": 2806,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2807,
+       "sensor_type": 0,
+       "value": 252
+      },
+      {
+       "exp": 0,
+       "id": 2811,
+       "sensor_type": 0,
+       "value": 83
+      },
+      {
+       "exp": 0,
+       "id": 2812,
+       "sensor_type": 1,
+       "value": 508
+      },
+      {
+       "exp": 0,
+       "id": 2813,
+       "sensor_type": 0,
+       "value": 3
+      },
+      {
+       "exp": 0,
+       "id": 2816,
+       "sensor_type": 4,
+       "value": 16
+      },
+      {
+       "exp": 0,
+       "id": 2817,
+       "sensor_type": 0,
+       "value": 1
+      },
+      {
+       "exp": 0,
+       "id": 2830,
+       "sensor_type": 0,
+       "value": 1
+      },
+      {
+       "exp": 0,
+       "id": 2831,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2832,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2833,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2834,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2836,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2843,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2898,
+       "sensor_type": 4,
+       "value": 18
+      },
+      {
+       "exp": 0,
+       "id": 2901,
+       "sensor_type": 4,
+       "value": 19
+      },
+      {
+       "exp": 0,
+       "id": 2902,
+       "sensor_type": 4,
+       "value": 19
+      },
+      {
+       "exp": 0,
+       "id": 2906,
+       "sensor_type": 8,
+       "value": 24.0
+      },
+      {
+       "exp": 0,
+       "id": 2907,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2910,
+       "sensor_type": 0,
+       "value": 1
+      },
+      {
+       "exp": 0,
+       "id": 2912,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2913,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2914,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2916,
+       "sensor_type": 0,
+       "value": 0
+      },
+      {
+       "exp": 0,
+       "id": 2917,
+       "sensor_type": 4,
+       "value": 19
+      },
+      {
+       "exp": 0,
+       "id": 2918,
+       "sensor_type": 0,
+       "value": 4
+      },
+      {
+       "exp": 0,
+       "id": 2920,
+       "sensor_type": 4,
+       "value": 16
+      }
+     ],
+     "type": 0
+    }
+   ],
+   "time": "2026-09-23T02:27:33Z"
+  }
+ ],
+ "seq": 42,
+ "type": "data"
+}
