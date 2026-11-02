@@ -3,18 +3,21 @@
 Run with: python3 -B -m unittest discover -s tests -p 'test_combine.py'
 No test opens a socket or writes to a tracker.
 
-The .hex/.json fixtures under tests/fixtures/combine are copied from the
-platform's reference suite (internal/providers/vega/combine); the decoder here
-is a port of that codec and must agree with them.
+The .hex/.json fixtures under tests/fixtures/combine come from the platform's
+reference suite (internal/providers/vega/combine), except data-hv-battery,
+captured from the tracker with position records zeroed and CRC recomputed.
+The decoder here is a port of that codec and must agree with these fixtures.
 """
 import asyncio
 import importlib
 import json
+import struct
 from pathlib import Path
 import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 FX = Path(__file__).parent / "fixtures" / "combine"
@@ -161,6 +164,100 @@ class CombineIngestTests(unittest.TestCase):
         self.assertEqual(self.rt._position["speed"], 3)
         self.assertEqual(self.rt._position["course"], 90)
         self.assertEqual(self.rt._position["satellites"], 9)
+
+
+class HvIngestTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        hass = types.SimpleNamespace(config=types.SimpleNamespace(
+            path=lambda *p: str(Path(self.temp.name, *p))))
+        self.rt = VegaRuntime(hass, "test", 21443, "0000", "0000", 30)
+        self.addAsyncCleanup(self.rt.stop)
+        self.hv = importlib.import_module(PACKAGE + ".hv_battery")
+        self.sent = []
+        async def drain():
+            pass
+        self.writer = types.SimpleNamespace(write=self.sent.append, drain=drain)
+
+    async def packet(self, stamp, params):
+        body = struct.pack('>IBBB', stamp, 1, 7, len(params))
+        for sid, value in params:
+            body += struct.pack('>HBf', 0x8000 | sid, 8, value)
+        frame = b'$$\x01' + struct.pack('>HH', 123, len(body)) + body
+        frame += struct.pack('>H', combine.crc16(frame))
+        decoded, size = combine.parse_frame(frame)
+        self.assertEqual(size, len(frame))
+        await self.rt._combine_packet(self.writer, decoded)
+
+    async def test_wire_float32_pair_updates_snapshot_and_ack(self):
+        with patch.object(runtime_module.time, 'time', return_value=1000):
+            self.rt._combine_last_seen = 1000
+            await self.packet(1000, [(2922, 371.6), (2923, -7.2)])
+            data = self.rt.snapshot()
+        self.assertEqual(data['hv_battery_voltage'], 371.6)
+        self.assertEqual(data['hv_battery_current'], -7.2)
+        self.assertEqual(data['hv_battery_power'], -2.676)
+        self.assertEqual(self.sent, [combine.encode_ack(123)])
+
+    async def test_real_tracker_packet_with_separate_measurements(self):
+        from datetime import datetime
+        frame = bytes.fromhex(_hex_lines('data-hv-battery.hex')[0])
+        decoded, _ = combine.parse_frame(frame)
+        now = datetime.fromisoformat(decoded['messages'][-1]['time'].replace('Z', '+00:00')).timestamp() + 10
+        with patch.object(runtime_module.time, 'time', return_value=now):
+            self.rt._combine_last_seen = now
+            await self.rt._combine_packet(self.writer, decoded)
+            data = self.rt.snapshot()
+        self.assertEqual(data['hv_battery_voltage'], 361.4)
+        self.assertEqual(data['hv_battery_current'], 2.8)
+        self.assertEqual(data['hv_battery_power'], 1.012)
+
+    async def test_history_and_keepalive_cannot_refresh_power(self):
+        with patch.object(runtime_module.time, 'time', return_value=1000):
+            self.rt._combine_last_seen = 1000
+            await self.packet(1000, [(2922, 360), (2923, 3)])
+        with patch.object(runtime_module.time, 'time', return_value=1100):
+            self.rt._combine_last_seen = 1100
+            await self.packet(1000, [(2922, 360), (2923, 3)])
+            data = self.rt.snapshot()
+        self.assertTrue(data['is_online'])
+        self.assertIsNone(data['hv_battery_power'])
+
+    async def test_separate_combine_messages_are_not_one_sample(self):
+        with patch.object(runtime_module.time, 'time', return_value=1000):
+            self.rt._combine_last_seen = 1000
+            await self.packet(990, [(2922, 360)])
+            await self.packet(1000, [(2923, 3)])
+            self.assertIsNone(self.rt.snapshot()['hv_battery_power'])
+
+    async def test_binary_reply_ingestion_uses_physical_float_units(self):
+        with patch.object(runtime_module.time, 'time', return_value=1000):
+            self.rt._wialon_last_seen = 1000
+            for sid, value in ((2922, 360), (2923, 3)):
+                self.rt._ingest_sensor(protocol.decode_sensor(sid, struct.pack('<f', value) + bytes(4)))
+            self.assertEqual(self.rt.snapshot()['hv_battery_power'], 1.08)
+
+    async def test_invalid_combine_value_invalidates_previous(self):
+        with patch.object(runtime_module.time, 'time', return_value=1000):
+            self.rt._combine_last_seen = 1000
+            await self.packet(1000, [(2922, 360), (2923, 3)])
+        with patch.object(runtime_module.time, 'time', return_value=1001):
+            await self.packet(1001, [(2923, float('nan'))])
+            self.assertIsNone(self.rt.snapshot()['hv_battery_power'])
+
+    async def test_expiry_publishes_without_any_new_network_packet(self):
+        updates = []
+        self.rt.set_update_callback(updates.append)
+        with patch.object(self.hv, 'MAX_AGE', 0.025):
+            self.rt._wialon_last_seen = runtime_module.time.time()
+            for sid, value in ((2922, 360), (2923, 3)):
+                self.rt._ingest_sensor(protocol.decode_sensor(sid, struct.pack('<f', value)))
+            self.rt._publish()
+            self.assertEqual(updates[-1]['hv_battery_power'], 1.08)
+            await asyncio.sleep(0.06)
+            self.assertIsNone(updates[-1]['hv_battery_power'])
+        self.assertIsNone(self.rt._hv_expiry)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ DOMAIN = "vega"
 
 # Bundled hold-to-confirm Lovelace card (independent of the evolute integration).
 # Bump CARD_VERSION together with the JS so the cache-buster forces a reload.
-CARD_VERSION = "0.3.4"
+CARD_VERSION = "0.3.5"
 PANEL_PATH = "vega-config"
 CARD_FILENAME = "vega-hold-button.js"
 CARD_URL = f"/local/vega/{CARD_FILENAME}"
@@ -83,6 +83,8 @@ SENSOR_KEY_MAP = {
     "speed": "speed",
     "tracker_temp": "tracker_temp",
     "backup_battery": "backup_battery",
+    "hv_battery_voltage": "hv_battery_voltage",
+    "hv_battery_current": "hv_battery_current",
     "ignition": "ignition",
     "central_lock": "central_lock",
     "trunk": "trunk",
@@ -106,6 +108,9 @@ SENSOR_TYPES = {
     "remains_mileage": ("Remaining Range", "km", SensorDeviceClass.DISTANCE, "mdi:map-marker-distance", "remains_mileage", SensorStateClass.MEASUREMENT),
     "battery_voltage": ("12V Battery Voltage", "V", SensorDeviceClass.VOLTAGE, "mdi:car-battery", "battery_voltage", SensorStateClass.MEASUREMENT),
     "backup_battery": ("Backup Battery", "V", SensorDeviceClass.VOLTAGE, "mdi:battery-heart-variant", "backup_battery", SensorStateClass.MEASUREMENT),
+    "hv_battery_voltage": ("HV Battery Voltage", "V", SensorDeviceClass.VOLTAGE, "mdi:car-battery", "hv_battery_voltage", SensorStateClass.MEASUREMENT),
+    "hv_battery_current": ("HV Battery Current", "A", SensorDeviceClass.CURRENT, "mdi:current-dc", "hv_battery_current", SensorStateClass.MEASUREMENT),
+    "hv_battery_power": ("HV Battery Power", "kW", SensorDeviceClass.POWER, "mdi:flash", "hv_battery_power", SensorStateClass.MEASUREMENT),
     "tracker_temp": ("Tracker Temperature", "°C", SensorDeviceClass.TEMPERATURE, "mdi:thermometer", "tracker_temp", SensorStateClass.MEASUREMENT),
     "odometer": ("Odometer", "km", SensorDeviceClass.DISTANCE, "mdi:counter", "odometer", SensorStateClass.TOTAL_INCREASING),
     "outside_temp": ("Outside Temperature", "°C", SensorDeviceClass.TEMPERATURE, "mdi:thermometer", "outside_temp", SensorStateClass.MEASUREMENT),

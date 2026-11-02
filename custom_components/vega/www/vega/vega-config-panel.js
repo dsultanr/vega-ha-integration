@@ -5,6 +5,9 @@
 const editorUrl = new URL("./vega-can-editor.js", import.meta.url);
 editorUrl.search = new URL(import.meta.url).search;
 await import(editorUrl.href);
+const hvUrl = new URL("./vega-hv-setup.js", import.meta.url);
+hvUrl.search = new URL(import.meta.url).search;
+await import(hvUrl.href);
 
 class VegaConfigPanel extends HTMLElement {
   constructor() {
@@ -30,7 +33,7 @@ class VegaConfigPanel extends HTMLElement {
         [hidden] { display:none !important; }
         @media(max-width:600px) { header { padding:12px 16px; } main { padding:12px 8px; } h1 { font-size:20px; } }
       </style>
-      <header><a id="back" href="/config/devices/dashboard">← Устройства</a><a id="trackers" href="/vega-config" hidden>Все трекеры</a><h1>Команды и сценарии Vega</h1></header>
+      <header><a id="back" href="/config/devices/dashboard">← Устройства</a><a id="trackers" href="/vega-config" hidden>Все трекеры</a><h1>Настройки Vega</h1></header>
       <main><p id="status" role="status">Загружаю список трекеров…</p>
         <nav id="choices" aria-label="Трекеры Vega" hidden></nav>
         <button id="retry" hidden>Обновить</button><div id="editor" hidden></div></main>`;
@@ -61,6 +64,7 @@ class VegaConfigPanel extends HTMLElement {
     this._attempted = false;
     this._row = null;
     this._editor = null;
+    this._hv = null;
     this.shadowRoot.querySelector("#editor").replaceChildren();
     this.shadowRoot.querySelector("#editor").hidden = true;
     this.shadowRoot.querySelector("#choices").hidden = true;
@@ -132,6 +136,11 @@ class VegaConfigPanel extends HTMLElement {
       const row = matches[0];
       if (row.disabled_by) throw new Error("Сенсор CAN Scripts отключён. Включите его на странице устройства.");
       this._row = row;
+      this._hvEntities = Object.fromEntries(["voltage", "current", "power"].map(key => {
+        const matches = entities.filter(e => e.platform === "vega" && e.config_entry_id === entry &&
+          e.unique_id?.endsWith(`_hv_battery_${key}`));
+        return [`${key}_entity`, matches.length === 1 ? matches[0].entity_id : null];
+      }));
       if (row.device_id) {
         const back = this.shadowRoot.querySelector("#back");
         back.href = `/config/devices/device/${encodeURIComponent(row.device_id)}`;
@@ -189,11 +198,14 @@ class VegaConfigPanel extends HTMLElement {
       this._editor = document.createElement("vega-can-editor");
       this._editor.setConfig({entity: this._row.entity_id});
       this._editorEntity = this._row.entity_id;
-      container.replaceChildren(this._editor);
+      this._hv = document.createElement("vega-hv-setup");
+      this._hv.setConfig({entity: this._row.entity_id, entry_id: this._entryId, ...this._hvEntities});
+      container.replaceChildren(this._hv, this._editor);
     }
     container.hidden = false;
     this._message("");
     this._editor.hass = this._hass;
+    this._hv.hass = this._hass;
   }
 }
 

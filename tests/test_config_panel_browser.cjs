@@ -24,13 +24,16 @@ const root = path.resolve(__dirname, '../custom_components/vega/www/vega');
       window.entries = [{domain: 'vega', entry_id: 'one', title: 'Первый трекер', source: 'user', disabled_by: null}];
       window.allEntries = [...entries, {domain: 'vega', entry_id: 'two', title: 'Второй трекер', source: 'user', disabled_by: null}];
       window.allRows = structuredClone(registry);
+      registry.push({platform:'vega',config_entry_id:'one',entity_id:'sensor.user_power',
+        unique_id:'vega_123456789012345_hv_battery_power',device_id:'device-one'});
       const state = entry => ({state: '1', attributes: {entry_id: entry, scenarios_read_at: 'today',
         command_bindings: {preheat: {setting_id: 1347, value: 1, scenario_routes: [{scenario: 3}]}},
         scenarios: [{index: 3, editable: true, slot: 4, raw: 'aa'.repeat(50), conditions: [{sensor: 1347}],
           document: {conditions: [{sensor: 1347, comparison: 'greater', value: 0}, null], match: 'any', actions: {
             external_output_on: 1, external_output_on_seconds: 0, external_output_off: 7, external_output_off_seconds: 0, can_script: 4}}}],
         slots: [{slot: 4, name: entry, repeat: 1, frames: [], raw: 'aa'.repeat(82), editable: true}]}});
-      window.hass = {states: {'sensor.renamed_one': state('one'), 'sensor.renamed_two': state('two')}, callWS: async msg => {
+      window.hass = {states: {'sensor.renamed_one': state('one'), 'sensor.renamed_two': state('two'),
+        'sensor.user_power':{state:'0.941'}}, callWS: async msg => {
         calls.push(msg);
         if (msg.type === 'config/entity_registry/list') return registry;
         if (msg.type === 'config_entries/get') return entries;
@@ -54,6 +57,10 @@ const root = path.resolve(__dirname, '../custom_components/vega/www/vega');
     await page.addScriptTag({type: 'module', url: 'http://vega.test/vega-config-panel.js?v=test'});
     await page.evaluate(() => customElements.whenDefined('vega-config-panel'));
     await page.locator('vega-can-editor').waitFor();
+    await page.locator('vega-hv-setup').waitFor();
+    assert.equal(await page.locator('vega-hv-setup').evaluate(e => e._config.entry_id), 'one');
+    assert.equal(await page.locator('vega-hv-setup').evaluate(e => e._config.power_entity), 'sensor.user_power');
+    assert.match(await page.locator('#hv-power').innerText(), /0,941/);
     assert.equal(await page.locator('vega-can-editor').evaluate(e => e._config.entity), 'sensor.renamed_one');
     assert.equal(await page.locator('#back').getAttribute('href'), '/config/devices/device/device-one');
     assert.equal(await page.evaluate(() => calls.filter(c => c.type === 'call_service').length), 0);
@@ -82,6 +89,7 @@ const root = path.resolve(__dirname, '../custom_components/vega/www/vega');
       pending[0]([]);
     });
     await page.waitForFunction(() => panel.shadowRoot.querySelector('vega-can-editor')?._config.entity === 'sensor.renamed_two');
+    assert.equal(await page.locator('vega-hv-setup').evaluate(e => e._config.entry_id), 'two');
     assert.equal(await page.locator('#back').getAttribute('href'), '/config/devices/device/device-two');
     await page.evaluate(() => { panel.hass = hass; panel.route = {path: '/missing'}; });
     await page.waitForFunction(() => panel.shadowRoot.querySelector('#status').textContent.includes('не найден'));

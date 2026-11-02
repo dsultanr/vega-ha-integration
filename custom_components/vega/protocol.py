@@ -84,6 +84,10 @@ SENSOR_DEFS: dict[int, dict] = {
     1250: {"name": "tracker_temp", "title": "Температура трекера", "unit": "°C", "type": "float"},
     1252: {"name": "battery_12v", "title": "Бортовое напряжение 12V", "unit": "В", "type": "float"},
     1253: {"name": "backup_battery", "title": "Резервная АКБ", "unit": "В", "type": "float"},
+    # Opt-in F515 CAN profile: Setting 5500 slots 48/49, CAN 0x104.
+    # Values are already scaled to physical units by the tracker, FLOAT32.
+    2922: {"name": "hv_battery_voltage", "title": "Напряжение ВВБ", "unit": "В", "type": "float"},
+    2923: {"name": "hv_battery_current", "title": "Ток ВВБ", "unit": "А", "type": "float"},
     2005: {"name": "gsm_csq", "title": "Уровень GSM сигнала", "unit": "CSQ", "type": "int", "w": 1},
     2800: {"name": "odometer", "title": "Пробег", "unit": "км", "type": "int", "w": 2},
     2801: {"name": "speed", "title": "Скорость", "unit": "км/ч", "type": "int", "w": 1},

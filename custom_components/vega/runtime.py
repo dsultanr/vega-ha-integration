@@ -8,9 +8,11 @@ when explicitly enabled) sends direct commands back to the vehicle.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import json
 import logging
 import os
+import secrets
 import struct
 import time
 from typing import Any, Callable
@@ -18,8 +20,9 @@ from typing import Any, Callable
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from . import combine, protocol
+from . import combine, protocol, hv_profile
 from .const import DEFAULT_IMEI, DOWNLINK_EVENT, ONLINE_TIMEOUT, SENSOR_KEY_MAP
+from .hv_battery import HvBatteryTelemetry, INPUTS as HV_INPUTS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -396,6 +399,10 @@ class VegaRuntime:
         self._wialon_imei: str = learned_imei or ""
 
         self._sensors: dict[str, Any] = {}  # state_key -> value
+        self._hv_battery = HvBatteryTelemetry()
+        self._hv_expiry: asyncio.TimerHandle | None = None
+        self._hv_plan: dict | None = None
+        self.hv_setup: dict = {"phase": "idle", "message": "Настройки ВВБ ещё не проверены"}
         self._position: dict[str, Any] = {}  # latitude/longitude/... from Wialon
         self._last_remote_state: Any = None
         self._inject_session: InjectionSession | None = None  # active proxy injection
@@ -428,6 +435,9 @@ class VegaRuntime:
         )
 
     async def stop(self) -> None:
+        if self._hv_expiry:
+            self._hv_expiry.cancel()
+            self._hv_expiry = None
         if self._poll_task:
             self._poll_task.cancel()
             try:
@@ -466,6 +476,7 @@ class VegaRuntime:
         data.update(self._sensors)
         data.update(self._position)
         data["is_online"] = is_online
+        data.update(self._hv_battery.snapshot(now, is_online))
         speed = data.get("speed")
         data["is_moving"] = bool(is_online and isinstance(speed, (int, float)) and speed > 0)
         if last_seen:
@@ -493,8 +504,32 @@ class VegaRuntime:
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Vega: publish/update error ignored (session kept): %s", err)
 
-    def _ingest_sensor(self, sensor: dict) -> None:
+    def _schedule_hv_expiry(self) -> None:
+        if self._hv_expiry:
+            self._hv_expiry.cancel()
+            self._hv_expiry = None
+        now = time.time()
+        deadline = self._hv_battery.next_expiry(now)
+        if deadline is not None:
+            self._hv_expiry = asyncio.get_running_loop().call_later(
+                max(0.01, deadline - now), self._expire_hv
+            )
+
+    def _expire_hv(self) -> None:
+        self._hv_expiry = None
+        self._publish()
+        self._schedule_hv_expiry()
+
+    def _ingest_sensor(self, sensor: dict, *, observed: float | None = None,
+                       source: str = "vega") -> None:
         name = sensor.get("name")
+        if name in HV_INPUTS:
+            now = time.time()
+            stamp = now if source == "vega" else observed
+            if self._hv_battery.update(name, sensor.get("value"), now=now,
+                                       observed=stamp, source=source):
+                self._schedule_hv_expiry()
+            return
         key = SENSOR_KEY_MAP.get(name)
         if key is not None:
             value = sensor.get("value")
@@ -599,12 +634,16 @@ class VegaRuntime:
         if ptype != "data":
             return
         for msg in pkt.get("messages", []):
+            try:
+                observed = datetime.fromisoformat(msg["time"].replace("Z", "+00:00")).timestamp()
+            except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
+                observed = None
             for rec in msg.get("records", []):
                 pos = rec.get("position")
                 if pos:
                     self._ingest_combine_position(pos)
                 for p in rec.get("params", []) or []:
-                    self._ingest_combine_param(p)
+                    self._ingest_combine_param(p, observed=observed)
 
     def _ingest_combine_position(self, pos: dict) -> None:
         mapping = {"lat": "latitude", "lon": "longitude", "speed": "speed",
@@ -614,12 +653,16 @@ class VegaRuntime:
             if val is not None:
                 self._position[dst] = val
 
-    def _ingest_combine_param(self, p: dict) -> None:
+    def _ingest_combine_param(self, p: dict, *, observed: float | None = None) -> None:
         sid = p.get("id")
         sdef = protocol.SENSOR_DEFS.get(sid)
         if sdef is None or "value" not in p:
             return
         value = p["value"]
+        if sdef["name"] in HV_INPUTS:
+            self._ingest_sensor({"name": sdef["name"], "value": value},
+                                observed=observed, source="combine")
+            return
         stype = sdef.get("type")
         if stype == "bool":
             value = bool(value)
@@ -1110,6 +1153,157 @@ class VegaRuntime:
                 changed = True
         if changed:
             self._publish()
+
+    # --- Passive HV battery profile: preview / back up / write -------------
+
+    def _hv_session(self):
+        session = self._inject_session or self._active_vega_session()
+        if session is None:
+            raise CommandError("Для настройки ВВБ нужно соединение Vega Binary. "
+                               "Приём Combine доступен только для телеметрии")
+        event = getattr(session, "authenticated_event", None)
+        if not session.authenticated or (event is not None and not event.is_set()):
+            raise CommandError("Дождитесь авторизации соединения Vega Binary")
+        if not self.imei or self.imei == DEFAULT_IMEI:
+            raise CommandError("Дождитесь определения IMEI трекера")
+        return session
+
+    def _hv_status(self, phase: str, message: str, **extra) -> None:
+        self.hv_setup = {"phase": phase, "message": message, **extra}
+        self._publish()
+
+    async def _hv_snapshot(self, session) -> dict[str, bytes]:
+        snapshot = {}
+        for count, (setting, sub, size) in enumerate(hv_profile.READS, 1):
+            if session is not self._hv_session():
+                raise CommandError("Соединение трекера изменилось; повторите проверку")
+            snapshot[f"{setting}/{sub}"] = await self._read_setting(session, setting, sub, size)
+            if session is not self._hv_session():
+                raise CommandError("Соединение трекера изменилось; повторите проверку")
+            if count % 8 == 0 or count == len(hv_profile.READS):
+                self._hv_status("reading", "Читаю настройки трекера…",
+                                progress=count, total=len(hv_profile.READS))
+        return snapshot
+
+    async def async_prepare_hv_battery(self, profile: str) -> dict:
+        """Read every CAN/ISO-TP slot and retain an opaque, device-bound plan."""
+        if profile != hv_profile.PROFILE:
+            raise CommandError("Неизвестный профиль автомобиля")
+        async with self._scripts_lock:
+            self._hv_plan = None
+            self._hv_status("reading", "Проверяю возможность настройки ВВБ…")
+            try:
+                session = self._hv_session()
+                imei = self.imei
+                plan = hv_profile.prepare(await self._hv_snapshot(session), profile)
+                if imei != self.imei:
+                    raise CommandError("IMEI изменился; повторите проверку")
+                token = secrets.token_hex(16)
+                self._hv_plan = {"id": token, "imei": imei, "plan": plan,
+                                 "expires": time.monotonic() + 900}
+                summary = plan.summary()
+                self._hv_status("configured" if not plan.changes else "ready",
+                                "Измерение мощности ВВБ уже настроено" if not plan.changes
+                                else "Настройки прочитаны. Можно настроить измерение мощности ВВБ",
+                                **summary)
+                return {"plan_id": token, **summary}
+            except (ValueError, CommandError, OSError, asyncio.TimeoutError) as err:
+                self._hv_status("error", str(err))
+                raise CommandError(str(err)) from err
+            except asyncio.CancelledError:
+                self._hv_status("error", "Проверка прервана; прочитайте настройки заново")
+                raise
+
+    async def _hv_audit(self, record: dict) -> None:
+        path = self.hass.config.path("vega", f"hv_battery_backups_{self.imei}.jsonl")
+        record = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **record}
+
+        def write():
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+
+        await self.hass.async_add_executor_job(write)
+
+    async def async_configure_hv_battery(self, plan_id: str) -> dict:
+        """Recheck, back up and apply once. Never overwrite a conflicting slot."""
+        async with self._scripts_lock:
+            saved = self._hv_plan
+            if (not saved or saved["id"] != plan_id or saved["imei"] != self.imei
+                    or time.monotonic() >= saved["expires"]):
+                raise CommandError("План настройки устарел; проверьте трекер заново")
+            # A plan is single-use, including after an uncertain/partial write.
+            self._hv_plan = None
+            plan = saved["plan"]
+            confirmed, attempted = [], None
+            try:
+                if not self.direct_control:
+                    raise CommandError("Для записи настроек включите Direct Control на странице устройства")
+                session = self._hv_session()
+                current = await self._hv_snapshot(session)
+                if current != plan.originals:
+                    raise CommandError("Настройки изменились после проверки; прочитайте их заново")
+                if self.imei != saved["imei"]:
+                    raise CommandError("IMEI изменился; повторите проверку")
+                # Rebuild from readback as well as comparing the whole snapshot.
+                hv_profile.prepare(current, hv_profile.PROFILE)
+                if plan.changes:
+                    await self._hv_audit({"phase": "backup", "plan_id": plan_id,
+                        "profile": hv_profile.PROFILE,
+                        "snapshot": {k: v.hex() for k, v in current.items()},
+                        "changes": {k: {"before": current[k].hex(), "after": v.hex()}
+                                    for k, v in plan.changes.items()}})
+                for key, desired in plan.changes.items():
+                    if not self.direct_control:
+                        raise CommandError("Direct Control выключен; дальнейшая запись отменена")
+                    if session is not self._hv_session() or self.imei != saved["imei"]:
+                        raise CommandError("Трекер переподключился; повторите проверку")
+                    setting, sub = map(int, key.split("/"))
+                    before = await self._read_setting(session, setting, sub, len(desired))
+                    if before != current[key]:
+                        raise CommandError(f"{key}: настройка изменилась перед записью")
+                    await self._hv_audit({"phase": "write_intent", "plan_id": plan_id, "key": key})
+                    if not self.direct_control or session is not self._hv_session() or self.imei != saved["imei"]:
+                        raise CommandError("Условия записи изменились; повторите проверку")
+                    self._hv_status("writing", "Сохраняю настройки ВВБ…",
+                                    progress=len(confirmed), total=len(plan.changes))
+                    attempted = key
+                    try:
+                        await session.set_setting(setting, sub, desired)
+                    except (OSError, asyncio.TimeoutError):
+                        pass  # Lost ACK: read back; never repeat the write.
+                    actual = None
+                    for attempt in range(3):
+                        try:
+                            actual = await self._read_setting(session, setting, sub, len(desired))
+                            if actual == desired:
+                                break
+                        except (CommandError, OSError, asyncio.TimeoutError):
+                            actual = None
+                        if attempt < 2:
+                            await asyncio.sleep(0.3)
+                    if actual != desired:
+                        raise CommandError(f"{key}: запись не подтверждена обратным чтением")
+                    confirmed.append(key)
+                    attempted = None
+                    await self._hv_audit({"phase": "verified", "plan_id": plan_id, "key": key})
+                summary = {**plan.summary(), "configured": True, "change_count": 0}
+                self._hv_status("configured", "Измерение мощности ВВБ настроено. Ожидаю свежие показания",
+                                **summary)
+                return {"verified": True, "unchanged": not confirmed, "written": confirmed, **summary}
+            except (ValueError, CommandError, OSError, asyncio.TimeoutError) as err:
+                detail = f"{err}. Подтверждённые записи: {', '.join(confirmed) or 'нет'}."
+                if attempted:
+                    detail += f" Возможна неподтверждённая запись {attempted}."
+                detail += " Проверьте настройки заново перед повторной записью."
+                self._hv_status("error", detail, written=confirmed, uncertain=attempted)
+                raise CommandError(detail) from err
+            except asyncio.CancelledError:
+                self._hv_status("error", "Настройка прервана; проверьте трекер заново",
+                                written=confirmed, uncertain=attempted)
+                raise
 
     # --- CAN scripts (Setting 5502 slots): read / view / write ---------------
 

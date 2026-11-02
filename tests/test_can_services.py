@@ -27,6 +27,8 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
                 async_write_can_script=AsyncMock(return_value={"verified": True, "slot": 5}),
                 async_read_can_scripts=AsyncMock(return_value=[{}] * 8),
                 async_write_commands=AsyncMock(return_value={"verified": True, "written": ["4001/3"]}),
+                async_prepare_hv_battery=AsyncMock(return_value={"plan_id": "plan-two", "configured": False}),
+                async_configure_hv_battery=AsyncMock(return_value={"verified": True, "written": ["5500/0"]}),
                 scenario_read_at="today",
             ) for entry in ("one", "two")
         }
@@ -80,6 +82,26 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_commands_read_alias_is_registered(self):
         result = await self.hass.services.async_call("vega", "read_commands", {"entry_id": "one"}, blocking=True, return_response=True)
         self.assertEqual(result, {"slots": 8, "scenarios_read": True})
+
+    async def test_hv_setup_targets_selected_tracker_and_returns_plan(self):
+        result = await self.hass.services.async_call("vega", "prepare_hv_battery",
+            {"entry_id": "two", "profile": "f515_ispace_4wd"}, blocking=True, return_response=True)
+        self.assertEqual(result['plan_id'], 'plan-two')
+        self.runtimes['two'].async_prepare_hv_battery.assert_awaited_once_with('f515_ispace_4wd')
+        result = await self.hass.services.async_call("vega", "configure_hv_battery",
+            {"entry_id": "two", "plan_id": result['plan_id']}, blocking=True, return_response=True)
+        self.assertTrue(result['verified'])
+        self.runtimes['two'].async_configure_hv_battery.assert_awaited_once_with('plan-two')
+        self.runtimes['one'].async_prepare_hv_battery.assert_not_called()
+        self.runtimes['one'].async_configure_hv_battery.assert_not_called()
+
+    async def test_hv_setup_never_broadcasts_or_uses_unknown_target(self):
+        for target in ({}, {'entry_id': 'missing'}):
+            with self.assertRaises(ServiceValidationError):
+                await self.hass.services.async_call('vega', 'configure_hv_battery',
+                    {**target, 'plan_id': 'plan'}, blocking=True, return_response=True)
+        for runtime in self.runtimes.values():
+            runtime.async_configure_hv_battery.assert_not_called()
 
     async def test_one_hidden_admin_panel_serves_multiple_devices(self):
         from homeassistant.components import frontend

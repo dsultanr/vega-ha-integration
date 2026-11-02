@@ -1,3 +1,37 @@
+prepare_hv_battery:
+  name: Проверить настройки мощности ВВБ
+  description: Прочитать CAN и ISO-TP, проверить совместимость и свободные слоты. Возвращает план настройки; ничего не записывает.
+  fields:
+    entry_id:
+      name: Интеграция Vega
+      description: Обязательно, если настроено несколько трекеров.
+      selector:
+        text:
+    profile:
+      name: Профиль автомобиля
+      required: true
+      selector:
+        select:
+          options:
+            - value: f515_ispace_4wd
+              label: F515 / i-Space 4WD
+
+configure_hv_battery:
+  name: Настроить измерение мощности ВВБ
+  description: Перепроверить план, сохранить резервную копию, записать датчики и период передачи с обратным чтением. Нужен Direct Control. План действует 15 минут и применяется один раз.
+  fields:
+    entry_id:
+      name: Интеграция Vega
+      description: Обязательно, если настроено несколько трекеров.
+      selector:
+        text:
+    plan_id:
+      name: План настройки
+      description: plan_id из ответа prepare_hv_battery для этого трекера.
+      required: true
+      selector:
+        text:
+
 read_can_scripts:
   name: Read CAN scripts
   description: >-

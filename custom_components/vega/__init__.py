@@ -47,6 +47,7 @@ from .const import (
     PANEL_PATH,
 )
 from .coordinator import VegaCoordinator
+from .hv_profile import PROFILE
 from .runtime import VegaRuntime
 
 _LOGGER = logging.getLogger(__name__)
@@ -216,7 +217,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 def _register_services(hass: HomeAssistant) -> None:
-    """Register the CAN-script read/write services once."""
+    """Register tracker configuration services once."""
     if hass.services.has_service(DOMAIN, "read_can_scripts"):
         return
 
@@ -243,6 +244,23 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def _write_commands(call) -> dict:
         return await _runtime(call).async_write_commands(call.data["document"], call.data["expected"])
+
+    async def _prepare_hv(call) -> dict:
+        return await _runtime(call).async_prepare_hv_battery(call.data["profile"])
+
+    async def _configure_hv(call) -> dict:
+        return await _runtime(call).async_configure_hv_battery(call.data["plan_id"])
+
+    hass.services.async_register(
+        DOMAIN, "prepare_hv_battery", _prepare_hv,
+        schema=vol.Schema({vol.Optional("entry_id"): str, vol.Required("profile"): vol.In([PROFILE])}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, "configure_hv_battery", _configure_hv,
+        schema=vol.Schema({vol.Optional("entry_id"): str, vol.Required("plan_id"): str}),
+        supports_response=SupportsResponse.ONLY,
+    )
 
     hass.services.async_register(
         DOMAIN, "read_can_scripts", _read,

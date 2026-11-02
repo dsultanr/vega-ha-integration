@@ -16,6 +16,7 @@ from homeassistant.util import dt as dt_util
 from .const import DEFAULT_IMEI, DOMAIN, SENSOR_TYPES
 from .coordinator import VegaCoordinator
 from .entity import build_device_info
+from .hv_battery import OUTPUTS as HV_OUTPUTS
 
 TIMESTAMP_KEYS = {"position_time", "last_online"}
 
@@ -66,7 +67,8 @@ class VegaScriptsSensor(CoordinatorEntity, SensorEntity):
         return {"slots": runtime.can_scripts, "entry_id": self.coordinator.entry_id,
                 "scenarios": runtime.scenarios,
                 "command_bindings": runtime.command_bindings,
-                "scenarios_read_at": runtime.scenario_read_at}
+                "scenarios_read_at": runtime.scenario_read_at,
+                "hv_setup": runtime.hv_setup, "direct_control": runtime.direct_control}
 
 
 class VegaSensor(CoordinatorEntity, SensorEntity):
@@ -110,4 +112,6 @@ class VegaSensor(CoordinatorEntity, SensorEntity):
     @property
     def available(self) -> bool:
         # Unavailable until this specific value has been seen (no fake defaults).
+        if self._state_key in HV_OUTPUTS:
+            return (self.coordinator.data or {}).get(self._state_key) is not None
         return self._state_key in (self.coordinator.data or {})
