@@ -146,6 +146,14 @@ class CombineIngestTests(unittest.TestCase):
         self.rt._ingest_combine_param({"id": 1252, "value": 12.64})  # battery_12v float
         self.assertEqual(self.ingested, [{"name": "battery_12v", "value": 12.64}])
 
+    def test_string_param_forwarded(self):
+        self.rt._ingest_combine_param({"id": 3, "text": "A011B08A"})
+        self.assertEqual(self.ingested, [{"name": "tracker_firmware", "value": "A011B08A"}])
+
+    def test_enum_param_mapped_to_label(self):
+        self.rt._ingest_combine_param({"id": 2813, "value": 1})
+        self.assertEqual(self.ingested, [{"name": "gear", "value": "D"}])
+
     def test_bool_param_coerced_to_bool(self):
         sid = next(s for s, d in protocol.SENSOR_DEFS.items() if d.get("type") == "bool")
         name = protocol.SENSOR_DEFS[sid]["name"]

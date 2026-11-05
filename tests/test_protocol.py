@@ -34,6 +34,21 @@ def test_decode_sensor_float_voltage():
     assert protocol.decode_sensor(1252, raw)["value"] == 12.75
 
 
+def test_decode_sensor_tracker_metadata_and_climate_fan():
+    assert protocol.decode_sensor(3, b"A011B08A\x00padding")["value"] == "A011B08A"
+    assert protocol.decode_sensor(9, bytes.fromhex("7856341200000000"))["value"] == 0x12345678
+    assert protocol.decode_sensor(2907, bytes([7]))["value"] == 7
+
+
+def test_decode_sensor_can_matrix_names():
+    assert protocol.decode_sensor(2813, bytes([3]))["value"] == "P"
+    assert protocol.decode_sensor(2813, bytes([9]))["value"] == "9"
+    assert protocol.decode_sensor(2813, bytes([1]))["name"] == "gear"
+    assert protocol.decode_sensor(2843, bytes([1]))["value"] is True
+    assert protocol.decode_sensor(2912, bytes([2]))["name"] == "seat_heater_driver"
+    assert protocol.decode_sensor(2807, bytes.fromhex("2c01"))["value"] == 300
+
+
 def test_decode_sensor_odometer_8byte():
     # real tracker sends the odometer as an 8-byte LE int (881f.. = 8072)
     assert protocol.decode_sensor(2800, bytes.fromhex("881f000000000000"))["value"] == 8072

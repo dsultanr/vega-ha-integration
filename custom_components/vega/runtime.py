@@ -656,9 +656,11 @@ class VegaRuntime:
     def _ingest_combine_param(self, p: dict, *, observed: float | None = None) -> None:
         sid = p.get("id")
         sdef = protocol.SENSOR_DEFS.get(sid)
-        if sdef is None or "value" not in p:
+        if sdef is None:
             return
-        value = p["value"]
+        value = p.get("text") if sdef.get("type") == "string" else p.get("value")
+        if value is None:
+            return
         if sdef["name"] in HV_INPUTS:
             self._ingest_sensor({"name": sdef["name"], "value": value},
                                 observed=observed, source="combine")
@@ -668,7 +670,7 @@ class VegaRuntime:
             value = bool(value)
         elif stype == "int":
             try:
-                value = int(value)
+                value = protocol.map_enum(sid, int(value))
             except (TypeError, ValueError):
                 return
         elif stype == "float":

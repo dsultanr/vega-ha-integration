@@ -81,6 +81,23 @@ CAN_SCRIPTS = {
 # with zeros or stale garbage, so only the low w bytes are the value). "signed"
 # for temperatures that can go below zero. floats read the low 4 bytes.
 SENSOR_DEFS: dict[int, dict] = {
+    # Read-only tracker metadata. ICCID (8) is deliberately not included: it
+    # is a personal identifier and has no operational value in Home Assistant.
+    3: {"name": "tracker_firmware", "title": "Прошивка трекера", "unit": "", "type": "string"},
+    4: {"name": "gnss_firmware", "title": "Прошивка GNSS", "unit": "", "type": "string"},
+    9: {"name": "tracker_counter", "title": "Счётчик трекера", "unit": "", "type": "int", "w": 4},
+    # Observed read-only values whose OEM semantics are not yet independently
+    # confirmed. Expose the raw number under its sensor ID for research, rather
+    # than assigning a misleading vehicle-state name.
+    11: {"name": "vega_status_11", "title": "Статус Vega 11", "unit": "", "type": "int", "w": 1},
+    25: {"name": "vega_status_25", "title": "Статус Vega 25", "unit": "", "type": "int", "w": 1},
+    30: {"name": "vega_status_30", "title": "Статус Vega 30", "unit": "", "type": "int", "w": 1},
+    109: {"name": "vega_status_109", "title": "Статус Vega 109", "unit": "", "type": "int", "w": 1},
+    110: {"name": "vega_status_110", "title": "Статус Vega 110", "unit": "", "type": "int", "w": 1},
+    113: {"name": "vega_status_113", "title": "Статус Vega 113", "unit": "", "type": "float"},
+    114: {"name": "vega_status_114", "title": "Статус Vega 114", "unit": "", "type": "int", "w": 1},
+    115: {"name": "vega_status_115", "title": "Статус Vega 115", "unit": "", "type": "int", "w": 2},
+    1241: {"name": "vega_status_1241", "title": "Статус Vega 1241", "unit": "", "type": "int", "w": 1},
     1250: {"name": "tracker_temp", "title": "Температура трекера", "unit": "°C", "type": "float"},
     1252: {"name": "battery_12v", "title": "Бортовое напряжение 12V", "unit": "В", "type": "float"},
     1253: {"name": "backup_battery", "title": "Резервная АКБ", "unit": "В", "type": "float"},
@@ -94,19 +111,28 @@ SENSOR_DEFS: dict[int, dict] = {
     2803: {"name": "soc", "title": "Заряд ВВБ", "unit": "%", "type": "int", "w": 1},
     2804: {"name": "range_ev", "title": "Запас хода EV", "unit": "км", "type": "int", "w": 2},
     2806: {"name": "ignition", "title": "Зажигание", "unit": "", "type": "bool"},
+    # 2807/2813/2817/2843/2912-2918/2920 names follow the CAN matrix in
+    # f515-vega-monitor (CanSignalMatrix.java).
+    2807: {"name": "range_fuel_2807", "title": "Запас хода бензин (2807)", "unit": "км", "type": "int", "w": 2},
     2830: {"name": "central_lock", "title": "Центральный замок", "unit": "", "type": "bool"},
     2836: {"name": "trunk", "title": "Багажник", "unit": "", "type": "bool"},
     2850: {"name": "charger_plug", "title": "Подключение зарядного пистолета", "unit": "", "type": "bool"},
     2910: {"name": "charging_active", "title": "Процесс зарядки", "unit": "", "type": "bool"},
     2816: {"name": "outside_temp", "title": "Температура за бортом", "unit": "°C", "type": "int", "w": 1, "signed": True},
+    2817: {"name": "gear_mode", "title": "Режим АКПП", "unit": "", "type": "int", "w": 1},
     2902: {"name": "inside_temp", "title": "Температура в салоне", "unit": "°C", "type": "int", "w": 1, "signed": True},
     # Extra IDs mapped 2026-10-24 by value cross-check against the evolute cloud
     # (same frame: fuel 83, remains_fuel 577, batt/coolant 12, climate target 22).
     2811: {"name": "fuel_percentage", "title": "Уровень топлива", "unit": "%", "type": "int", "w": 1},
     2812: {"name": "remains_mileage_fuel", "title": "Запас хода (топливо)", "unit": "км", "type": "int", "w": 2},
+    2813: {"name": "gear", "title": "Положение АКПП", "unit": "", "type": "int", "w": 1,
+           "enum": {0: "N", 1: "D", 2: "R", 3: "P"}},
     2898: {"name": "battery_temp", "title": "Температура ВВБ", "unit": "°C", "type": "int", "w": 1, "signed": True},
     2901: {"name": "coolant_temp", "title": "Температура ОЖ", "unit": "°C", "type": "int", "w": 1, "signed": True},
     2906: {"name": "climate_target_temp", "title": "Климат: уставка", "unit": "°C", "type": "float"},
+    # 2907 is 0 when the blower is stopped and 1..7 while it runs, including
+    # every observed remote-preheat session.
+    2907: {"name": "climate_fan_speed", "title": "Климат: скорость вентилятора", "unit": "", "type": "int", "w": 1},
     # Doors: 2831-2834 are consecutive and all 0 while the car is closed (matches
     # evolute all-off). Which sub-id is which door is TENTATIVE until verified by
     # opening one and watching which flips.
@@ -114,7 +140,26 @@ SENSOR_DEFS: dict[int, dict] = {
     2832: {"name": "door_fr", "title": "Дверь пассажира", "unit": "", "type": "bool"},
     2833: {"name": "door_rl", "title": "Дверь задняя левая", "unit": "", "type": "bool"},
     2834: {"name": "door_rr", "title": "Дверь задняя правая", "unit": "", "type": "bool"},
+    2843: {"name": "low_beam", "title": "Ближний свет", "unit": "", "type": "bool"},
+    2912: {"name": "seat_heater_driver", "title": "Подогрев сиденья водителя", "unit": "", "type": "int", "w": 1},
+    2913: {"name": "seat_heater_passenger", "title": "Подогрев сиденья пассажира", "unit": "", "type": "int", "w": 1},
+    2914: {"name": "seat_vent_driver", "title": "Вентиляция сиденья водителя", "unit": "", "type": "int", "w": 1},
+    2916: {"name": "seat_vent_passenger", "title": "Вентиляция сиденья пассажира", "unit": "", "type": "int", "w": 1},
+    # 2917 is labelled AC_InCarTempValid in the CAN matrix, but the live values
+    # track 2902 degree for degree (14..18 °C on 2026-11-05), so it is a
+    # temperature from the A/C unit, not a 0/1 validity flag.
+    2917: {"name": "inside_temp_ac", "title": "Температура салона (климат)", "unit": "°C", "type": "int", "w": 1, "signed": True},
+    2918: {"name": "steering_wheel_heater", "title": "Подогрев руля", "unit": "", "type": "int", "w": 1},
+    2920: {"name": "outside_temp_ac", "title": "Температура снаружи (климат)", "unit": "°C", "type": "int", "w": 1, "signed": True},
 }
+
+
+def map_enum(sid: int, value):
+    """Translate a coded int into its label when SENSOR_DEFS declares an enum."""
+    labels = SENSOR_DEFS.get(sid, {}).get("enum")
+    if labels and isinstance(value, int):
+        return labels.get(value, str(value))
+    return value
 
 
 def decode_sensor(sid: int, val_bytes: bytes) -> dict:
@@ -137,12 +182,16 @@ def decode_sensor(sid: int, val_bytes: bytes) -> dict:
         # float32 in the low 4 bytes (the answer may be padded to 8).
         if vlen >= 4:
             val = round(struct.unpack("<f", val_bytes[:4])[0] * scale, 2)
+    elif stype == "string":
+        # Direct replies are NUL-padded; Combine strings are handled in
+        # runtime.py and arrive as text already.
+        val = val_bytes.split(b"\x00", 1)[0].decode("latin1", errors="replace")
     elif stype == "int":
         # Only the low `w` bytes are the value; higher bytes are padding/garbage.
         w = sdef.get("w", 1)
         signed = sdef.get("signed", False)
         if vlen >= 1:
-            val = int.from_bytes(val_bytes[: min(w, vlen)], "little", signed=signed)
+            val = map_enum(sid, int.from_bytes(val_bytes[: min(w, vlen)], "little", signed=signed))
     else:  # unknown sensor: best-effort, never crash a numeric entity
         if vlen == 1:
             val = val_bytes[0]
