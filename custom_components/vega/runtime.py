@@ -436,6 +436,9 @@ class VegaRuntime:
         )
 
     async def stop(self) -> None:
+        relay = self._inject_session
+        if relay is not None and hasattr(relay, "channel"):
+            relay.writer.close()
         if self._hv_expiry:
             self._hv_expiry.cancel()
             self._hv_expiry = None
@@ -556,6 +559,17 @@ class VegaRuntime:
                 initial += await asyncio.wait_for(reader.read(1), timeout=1.5)
             except asyncio.TimeoutError:
                 pass
+
+        if initial == b"V":
+            try:
+                initial += await asyncio.wait_for(reader.readexactly(4), 5)
+            except (asyncio.TimeoutError, asyncio.IncompleteReadError):
+                writer.close()
+                return
+            if initial == b"VHR1\n":
+                from .cloud_relay import handle
+                await handle(self, reader, writer, initial)
+                return
 
         kind = demux_protocol(initial)
         if kind == "tls":
@@ -1416,6 +1430,30 @@ class VegaRuntime:
             [s for s in self._can_scripts if s["slot"] != slot] + [dec], key=lambda s: s["slot"]
         )
         self._slot_names[slot] = dec["name"]
+
+    async def async_set_server_address(self, slot: int, address: str, expected_address: str) -> dict:
+        """Change only the address of one slot, guarded by an expected baseline."""
+        if not self.direct_control:
+            raise CommandError("Direct control disabled")
+        if not 1 <= slot <= 4 or not address.isascii() or not 1 <= len(address) <= 31:
+            raise CommandError("Invalid server address")
+        host, sep, port = address.rpartition(":")
+        if not host or not sep or not port.isdigit() or not 1 <= int(port) <= 65535 or any(c.isspace() or ord(c)<33 for c in address):
+            raise CommandError("Expected host:port")
+        async with self._scripts_lock:
+            session = self._script_session()
+            raw = await self._read_setting(session, 3001, slot-1, 35)
+            current = raw[:32].split(b"\0",1)[0].decode("ascii")
+            if current != expected_address:
+                raise CommandError("Server baseline changed; read slots again")
+            if current == address:
+                return {"slot":slot,"address":address,"changed":False}
+            encoded = address.encode()
+            target = encoded + b"\0" + raw[len(encoded)+1:]
+            result = await session.set_setting(3001, slot-1, target)
+            if not result.get("success"):
+                raise CommandError("Server write not confirmed; read slots before retrying")
+            return {"slot":slot,"address":address,"changed":True,"readback_required":True}
 
     async def async_read_server_slots(self) -> dict:
         """Read Setting 3001 sub0..3 only. Never return server PINs."""

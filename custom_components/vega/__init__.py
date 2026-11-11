@@ -237,6 +237,13 @@ def _register_services(hass: HomeAssistant) -> None:
         scripts = await runtime.async_read_can_scripts()
         return {"slots": len(scripts), "scenarios_read": runtime.scenario_read_at is not None}
 
+    async def _relay_status(call) -> dict:
+        return getattr(_runtime(call), "_relay_status", {"connected":False})
+
+    async def _set_server(call) -> dict:
+        return await _runtime(call).async_set_server_address(
+            call.data["slot"],call.data["address"],call.data["expected_address"])
+
     async def _read_servers(call) -> dict:
         return await _runtime(call).async_read_server_slots()
 
@@ -265,6 +272,17 @@ def _register_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.ONLY,
     )
 
+    hass.services.async_register(
+        DOMAIN, "relay_status", _relay_status,
+        schema=vol.Schema({vol.Optional("entry_id"): str}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, "set_server_address", _set_server,
+        schema=vol.Schema({vol.Optional("entry_id"): str, vol.Required("slot"): vol.All(int,vol.Range(min=1,max=4)),
+                           vol.Required("address"): str, vol.Required("expected_address"): str}),
+        supports_response=SupportsResponse.ONLY,
+    )
     hass.services.async_register(
         DOMAIN, "read_server_slots", _read_servers,
         schema=vol.Schema({vol.Optional("entry_id"): str}),

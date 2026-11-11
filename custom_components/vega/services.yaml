@@ -123,3 +123,34 @@ read_server_slots:
       name: Integration entry ID
       selector:
         text:
+
+set_server_address:
+  name: Change one server address
+  description: Changes only the address, preserving protocol and period. Requires a matching current address and direct control. Read slots afterwards to verify.
+  fields:
+    entry_id:
+      selector:
+        text:
+    slot:
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 4
+          mode: box
+    address:
+      required: true
+      selector:
+        text:
+    expected_address:
+      required: true
+      selector:
+        text:
+
+relay_status:
+  name: Cloud relay status
+  description: Current cloudru connection, tracker slots, cloud upstreams and capture health.
+  fields:
+    entry_id:
+      selector:
+        text:

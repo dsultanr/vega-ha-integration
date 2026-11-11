@@ -159,3 +159,18 @@ class ServerSlotReadTests(unittest.IsolatedAsyncioTestCase):
             rt._inject_session=Session()
             with self.assertRaises(runtime_module.CommandError):
                 await rt.async_read_server_slots()
+
+class ServerAddressWriteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_guard_and_preserve_protocol_period(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rt=_runtime(tmp,direct_control=True);writes=[]
+            raw=b'old:12'.ljust(32,b'\0')+b'\x12\x34\x03'
+            class Session:
+                async def query_sensor(self,*args):return {'id':3001,'raw_hex':raw.hex()}
+                async def set_setting(self,*args):writes.append(args);return {'success':True}
+            rt._inject_session=Session()
+            with self.assertRaises(runtime_module.CommandError):await rt.async_set_server_address(4,'new:42','different:12')
+            self.assertFalse(writes)
+            result=await rt.async_set_server_address(4,'new:42','old:12')
+            self.assertTrue(result['changed']);self.assertEqual(writes[0][:2],(3001,3))
+            self.assertEqual(writes[0][2][-3:],raw[-3:]);self.assertEqual(len(writes[0][2]),35)
