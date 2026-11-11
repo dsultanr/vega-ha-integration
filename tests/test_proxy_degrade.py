@@ -89,3 +89,73 @@ class ProxyDegradeTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class RawRelayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_bytes_saved_before_forward_even_when_drain_fails(self):
+        import base64
+        import json
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            rt = _runtime(tmp, direct_control=True)
+            tasks=[]
+            def task(coro, **kwargs):
+                t=asyncio.create_task(coro);tasks.append(t);return t
+            rt.hass.async_create_background_task=task
+            async def poll(*args):
+                await asyncio.sleep(3600)
+            rt._inject_poll_loop=poll
+            rt._log_downlink=lambda *args:None
+            seen=[]
+            def saved(direction):
+                records=[json.loads(line) for p in Path(tmp,'vega_rawcap').glob('*.jsonl') for line in p.read_text().splitlines()]
+                return b''.join(base64.b64decode(r['base64']) for r in records if r['direction']==direction)
+            class Reader:
+                def __init__(self,data):self.data=data
+                async def read(self,n):
+                    data,self.data=self.data,b''
+                    return data
+            class Writer:
+                def __init__(self,direction):self.direction=direction;self.sent=b''
+                def get_extra_info(self,name):return ('test',1)
+                def write(self,data):
+                    self.sent+=data
+                    assert saved(self.direction)==self.sent
+                    seen.append(self.direction)
+                async def drain(self):
+                    if self.direction=='c2t':raise OSError('connection lost')
+                def close(self):pass
+            downstream=Writer('c2t');upstream=Writer('t2c')
+            incoming=b'not a frame'+bytes(range(256))*20
+            async def connect(*args):return Reader(incoming),upstream
+            with patch.object(runtime_module.asyncio,'open_connection',side_effect=connect):
+                await rt._handle_vega_proxy(Reader(b'next'),downstream,b'initial')
+            self.assertEqual(saved('t2c'),b'initialnext')
+            self.assertEqual(saved('c2t'),incoming)
+            self.assertIn('c2t',seen)
+            await asyncio.gather(*tasks,return_exceptions=True)
+
+class ServerSlotReadTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reads_four_slots_without_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rt=_runtime(tmp)
+            calls=[]
+            class Session:
+                async def query_sensor(self,setting,sub):
+                    calls.append((setting,sub))
+                    raw=(f'server{sub}:21124'.encode().ljust(32,b'\0')+b'\x34\x12\x03')
+                    return {'id':3001,'raw_hex':raw.hex()}
+            rt._inject_session=Session()
+            result=await rt.async_read_server_slots()
+            self.assertEqual(calls,[(3001,i) for i in range(4)])
+            self.assertEqual(result['slots'][3]['address'],'server3:21124')
+            self.assertEqual(result['slots'][0]['period_raw'],0x1234)
+            self.assertNotIn('raw_hex',result['slots'][0])
+
+    async def test_unknown_layout_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rt=_runtime(tmp)
+            class Session:
+                async def query_sensor(self,*args):return {'id':3001,'raw_hex':'00'}
+            rt._inject_session=Session()
+            with self.assertRaises(runtime_module.CommandError):
+                await rt.async_read_server_slots()

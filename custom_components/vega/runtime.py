@@ -21,6 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from . import combine, protocol, hv_profile
+from .raw_capture import RawCapture
 from .const import DEFAULT_IMEI, DOWNLINK_EVENT, ONLINE_TIMEOUT, SENSOR_KEY_MAP
 from .hv_battery import HvBatteryTelemetry, INPUTS as HV_INPUTS
 
@@ -856,7 +857,9 @@ class VegaRuntime:
             "Vega proxy: relaying %s <-> %s:%s (direct_control=%s)",
             peer, *self.upstream, self.direct_control,
         )
+        raw_capture = RawCapture(self.hass)
         if initial:
+            await raw_capture.feed("t2c", initial)
             up_writer.write(initial)
             await up_writer.drain()
 
@@ -890,6 +893,7 @@ class VegaRuntime:
                     chunk = await reader.read(4096)
                     if not chunk:
                         break
+                    await raw_capture.feed("t2c", chunk)
                     up_writer.write(chunk)
                     await up_writer.drain()
                     inject.last_seen = time.time()
@@ -912,6 +916,7 @@ class VegaRuntime:
                     chunk = await up_reader.read(4096)
                     if not chunk:
                         break
+                    await raw_capture.feed("c2t", chunk)
                     async with tracker_lock:
                         writer.write(chunk)
                         await writer.drain()
@@ -1411,6 +1416,24 @@ class VegaRuntime:
             [s for s in self._can_scripts if s["slot"] != slot] + [dec], key=lambda s: s["slot"]
         )
         self._slot_names[slot] = dec["name"]
+
+    async def async_read_server_slots(self) -> dict:
+        """Read Setting 3001 sub0..3 only. Never return server PINs."""
+        slots = []
+        async with self._scripts_lock:
+            session = self._script_session()
+            for sub in range(4):
+                sensor = await session.query_sensor(3001, sub)
+                if not sensor or sensor.get("id") != 3001:
+                    raise CommandError(f"Нет ответа на чтение 3001/{sub}")
+                raw = bytes.fromhex(sensor["raw_hex"])
+                if len(raw) not in (33, 35):
+                    raise CommandError(f"Неизвестный формат 3001/{sub}: {len(raw)} байт")
+                address = raw[:32].split(b"\0", 1)[0].decode("ascii")
+                slots.append({"slot": sub + 1, "address": address,
+                              "protocol": raw[-1], "enabled": raw[-1] != 0,
+                              "period_raw": int.from_bytes(raw[32:34], "little") if len(raw) == 35 else None})
+        return {"slots": slots, "read_at": datetime.now().astimezone().isoformat()}
 
     async def async_read_can_scripts(self) -> list[dict]:
         """Read scripts and all scenario routes. Never infer routes from slot names."""

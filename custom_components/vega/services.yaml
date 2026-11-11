@@ -114,3 +114,12 @@ write_commands:
       required: true
       selector:
         object:
+
+read_server_slots:
+  name: Read server slots
+  description: Read the four tracker server destinations (Setting 3001). Does not change settings or expose PINs.
+  fields:
+    entry_id:
+      name: Integration entry ID
+      selector:
+        text:

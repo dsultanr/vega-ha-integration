@@ -237,6 +237,9 @@ def _register_services(hass: HomeAssistant) -> None:
         scripts = await runtime.async_read_can_scripts()
         return {"slots": len(scripts), "scenarios_read": runtime.scenario_read_at is not None}
 
+    async def _read_servers(call) -> dict:
+        return await _runtime(call).async_read_server_slots()
+
     async def _write(call) -> dict:
         return await _runtime(call).async_write_can_script(
             call.data["slot"], call.data["script"], call.data.get("expected_raw")
@@ -262,6 +265,11 @@ def _register_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.ONLY,
     )
 
+    hass.services.async_register(
+        DOMAIN, "read_server_slots", _read_servers,
+        schema=vol.Schema({vol.Optional("entry_id"): str}),
+        supports_response=SupportsResponse.ONLY,
+    )
     hass.services.async_register(
         DOMAIN, "read_can_scripts", _read,
         schema=vol.Schema({vol.Optional("entry_id"): str}),
