@@ -52,23 +52,24 @@
     "airflow_status": "2925 = 2 and CAN378 byte4 bits4..6 = 2",
     "native_program_execution": true,
     "sleep_wake": false,
-    "native_program_evidence": "2026-11-14 final attempt 20:34:52Z, stopped 20:36:24Z; fresh cloud S1 telemetry. Earlier awake-only revision had confirmed all seven fields.",
+    "native_program_evidence": "2026-11-14 21:06:21Z start, 21:07:28Z stop; independent S4 pull without HU UI or USB. See local auto-off/auto-final-pulls.jsonl.",
     "remote_wake_executed": true,
     "profile_verified": false,
     "confirmed_after_wake": {
       "driver_heat": 3,
       "rear_right_heat": 3,
-      "steering_heat": 3
-    },
-    "unresolved": [
-      "Fan speed remains automatic instead of requested 8",
-      "Airflow changes automatically instead of requested face_and_feet",
-      "Direct USB pull during remote operation was unavailable; evidence is fresh cloud telemetry"
-    ],
-    "cached_matches_not_freshly_confirmed": {
+      "steering_heat": 3,
       "temperature_c": 22,
       "front_passenger_heat": 0
-    }
+    },
+    "unresolved": [
+      "Auto sensor 2905 changes from 0 to 1 during remote start; source of reactivation not established",
+      "Fan 8 is transient; final observed speed 4",
+      "Airflow 2 is transient; final observed airflow 3",
+      "Exact CAN emission timing and deep-sleep entry are not confirmed by sensor replies"
+    ],
+    "pull": "Independent authenticated S4 queries return per-sensor timestamps; last CAN sample time unknown",
+    "auto_observed": true
   },
   "format_note": "Setting5502 document version 2; bus=1..3, count is independent of bus; 10ms delay units.",
   "script": {

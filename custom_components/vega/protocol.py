@@ -129,6 +129,8 @@ SENSOR_DEFS: dict[int, dict] = {
            "enum": {0: "N", 1: "D", 2: "R", 3: "P"}},
     2898: {"name": "battery_temp", "title": "Температура ВВБ", "unit": "°C", "type": "int", "w": 1, "signed": True},
     2901: {"name": "coolant_temp", "title": "Температура ОЖ", "unit": "°C", "type": "int", "w": 1, "signed": True},
+    # Existing F515 decoder 5500/33: CAN 0x379, one-bit Auto status.
+    2905: {"name": "climate_auto", "title": "Климат: Auto", "unit": "", "type": "bool"},
     2906: {"name": "climate_target_temp", "title": "Климат: уставка", "unit": "°C", "type": "float"},
     # 2907: 0 stopped, 1..8 running (8 verified against OEM HVAC).
     2907: {"name": "climate_fan_speed", "title": "Климат: скорость вентилятора", "unit": "", "type": "int", "w": 1},

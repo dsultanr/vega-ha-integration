@@ -5,7 +5,7 @@ import time
 
 from . import protocol
 
-DEFAULT_IDS = (2801, 2805, 2806, 2906, 2907, 2912, 2913, 2918, 2902, 2924, 2925)
+DEFAULT_IDS = (2801, 2805, 2806, 2905, 2906, 2907, 2912, 2913, 2918, 2902, 2924, 2925)
 ALLOWED_IDS = frozenset(DEFAULT_IDS) | frozenset(
     sid for sid, definition in protocol.SENSOR_DEFS.items()
     if definition.get("type") in ("bool", "int", "float")

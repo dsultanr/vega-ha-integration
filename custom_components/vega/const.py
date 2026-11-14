@@ -173,6 +173,7 @@ SENSOR_TYPES = {
 
 # Binary sensor definitions: (name, device_class, state_key)
 BINARY_SENSOR_TYPES = {
+    "climate_auto": ("Climate Auto", None, "climate_auto"),
     "ignition": ("Ignition", BinarySensorDeviceClass.RUNNING, "ignition"),
     "central_lock": ("Central Lock", BinarySensorDeviceClass.LOCK, "central_lock"),
     "trunk": ("Trunk", BinarySensorDeviceClass.DOOR, "trunk"),
