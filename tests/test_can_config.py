@@ -48,8 +48,7 @@ SCENARIOS = {int(k): bytes.fromhex(v) for k, v in json.loads((FIXTURES / "scenar
 
 def document(slot=5):
     decoded = protocol.decode_can_script(SLOTS[slot])
-    return {"name": decoded["name"], "repeat": decoded["repeat"],
-            "frames": [{k: f[k] for k in ("delay_ms", "can_id", "bus", "data")} for f in decoded["frames"]]}
+    return {k: decoded[k] for k in ("format_version", "name", "repeat", "frame_type", "chain_next", "frames")}
 
 
 class ProtocolTests(unittest.TestCase):
@@ -110,8 +109,8 @@ class ProtocolTests(unittest.TestCase):
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 protocol.build_can_script_from_dict(spec)
         for key, values in {"data": ["ff", "ff" * 9, "zz" * 8, None],
-                            "delay_ms": [-1, 32768, "20", 1.5, True],
-                            "can_id": [-1, 0x20000000], "bus": [-1, 4]}.items():
+                            "delay_ms": [-1, 10240, 21, "20", 1.5, True],
+                            "can_id": [-1, 0x20000000], "bus": [-1, 0, 4], "count": [-1, 256, True], "dlc": [-1, 9, True]}.items():
             for value in values:
                 spec = document()
                 spec["frames"][0][key] = value

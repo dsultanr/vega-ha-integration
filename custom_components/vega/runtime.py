@@ -20,7 +20,7 @@ from typing import Any, Callable
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from . import combine, protocol, hv_profile
+from . import combine, protocol, hv_profile, sensor_pull
 from .raw_capture import RawCapture
 from .const import DEFAULT_IMEI, DOWNLINK_EVENT, ONLINE_TIMEOUT, SENSOR_KEY_MAP
 from .hv_battery import HvBatteryTelemetry, INPUTS as HV_INPUTS
@@ -1366,16 +1366,19 @@ class VegaRuntime:
             path = self._scripts_path()
             if os.path.exists(path):
                 with open(path, encoding="utf-8") as f:
-                    self._can_scripts = json.load(f)
-                # Descriptions/summary are derived data: always recompute them
-                # from the stable raw frames so a parser change takes effect on
-                # the next load (never trust a cached description from disk).
-                for s in self._can_scripts:
-                    for f_item in s.get("frames", []):
-                        f_item["description"] = protocol.explain_can_frame(
-                            f_item.get("bus", 0), f_item.get("can_id", 0), f_item.get("data", "")
-                        )
-                    s["summary"] = protocol.explain_can_script(s)
+                    cached = json.load(f)
+                # The old cache decoded bus/count/delay incorrectly. Rebuild
+                # from wire bytes; no cached slot is editable before a live read.
+                for item in cached:
+                    slot = protocol.validate_script_slot(item["slot"])
+                    if item.get("raw"):
+                        decoded = protocol.decode_can_script(bytes.fromhex(item["raw"]))
+                        decoded.update(slot=slot, editable=False)
+                    else:
+                        decoded = {"slot": slot, "name": item.get("name", ""),
+                                   "frames": [], "repeat": 0, "editable": False,
+                                   "summary": "Перечитайте CAN-скрипт из трекера"}
+                    self._can_scripts.append(decoded)
                 self._slot_names = {
                     int(s["slot"]): s["name"] for s in self._can_scripts if s.get("name")
                 }
@@ -1403,6 +1406,15 @@ class VegaRuntime:
             raise CommandError("Vehicle is offline (no active Vega session)")
         return session
 
+    async def async_read_sensors(self, sensor_ids=sensor_pull.DEFAULT_IDS, timeout=2):
+        """Read selected sensors without executing commands or mutating settings."""
+        try:
+            sensor_pull.validate(sensor_ids, timeout)
+        except ValueError as err:
+            raise CommandError(str(err)) from err
+        async with self._scripts_lock:
+            return await sensor_pull.read_sensors(self._script_session(), sensor_ids, timeout)
+
     @staticmethod
     async def _read_setting(session, setting: int, sub: int, size: int) -> bytes:
         sensor = await session.query_sensor(setting, sub)
@@ -1422,7 +1434,7 @@ class VegaRuntime:
         # Do not offer a lossy edit of a format this encoder cannot reproduce.
         try:
             dec["editable"] = protocol.build_can_script_from_dict(
-                {k: dec[k] for k in ("name", "repeat", "frames")}
+                {k: dec[k] for k in ("format_version", "name", "repeat", "frame_type", "chain_next", "frames")}
             ) == buf
         except ValueError:
             dec["editable"] = False

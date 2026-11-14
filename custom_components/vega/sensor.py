@@ -112,6 +112,6 @@ class VegaSensor(CoordinatorEntity, SensorEntity):
     @property
     def available(self) -> bool:
         # Unavailable until this specific value has been seen (no fake defaults).
-        if self._state_key in HV_OUTPUTS:
+        if self._state_key in HV_OUTPUTS or self._state_key in ("seat_heater_rear_right", "climate_air_distribution"):
             return (self.coordinator.data or {}).get(self._state_key) is not None
         return self._state_key in (self.coordinator.data or {})

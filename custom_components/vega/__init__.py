@@ -240,6 +240,11 @@ def _register_services(hass: HomeAssistant) -> None:
     async def _relay_status(call) -> dict:
         return getattr(_runtime(call), "_relay_status", {"connected":False})
 
+    async def _read_sensors(call) -> dict:
+        from .sensor_pull import DEFAULT_IDS
+        return await _runtime(call).async_read_sensors(
+            call.data.get("sensor_ids", DEFAULT_IDS), call.data.get("timeout", 2))
+
     async def _set_server(call) -> dict:
         return await _runtime(call).async_set_server_address(
             call.data["slot"],call.data["address"],call.data["expected_address"])
@@ -292,6 +297,13 @@ def _register_services(hass: HomeAssistant) -> None:
         DOMAIN, "read_can_scripts", _read,
         schema=vol.Schema({vol.Optional("entry_id"): str}),
         supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN, "read_sensors", _read_sensors,
+        schema=vol.Schema({vol.Optional("entry_id"): str,
+                           vol.Optional("sensor_ids"): vol.All([int], vol.Length(min=1, max=16)),
+                           vol.Optional("timeout"): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=6))}),
+        supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(
         DOMAIN, "write_can_script", _write,

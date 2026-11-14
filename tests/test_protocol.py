@@ -170,8 +170,8 @@ def test_command_map_shape():
 
 def test_explain_can_frame_and_script():
     # Lock script
-    f1 = (122, 0x701, 2, bytes.fromhex("03220203aa210000"))
-    f2 = (5, 0x011, 1, bytes.fromhex("00000000aa210000"))
+    f1 = (300, 0x701, 3, bytes.fromhex("03220203aa210000"), 2, 8)
+    f2 = (10, 0x011, 2, bytes.fromhex("00000000aa210000"), 1, 8)
     raw_lock = protocol.build_can_script("в охрану", [f1, f2], repeat=1)
     dec_lock = protocol.decode_can_script(raw_lock)
     assert dec_lock["name"] == "в охрану"
@@ -181,9 +181,9 @@ def test_explain_can_frame_and_script():
     assert "Закрытие центрального замка" in dec_lock["summary"]
 
     # Horn script
-    f_horn1 = (122, 0x701, 1, bytes.fromhex("062f010303080055"))
-    f_horn2 = (6, 0x701, 1, bytes.fromhex("062f010303000055"))
-    f_horn3 = (5, 0x011, 1, bytes.fromhex("0400000000000000"))
+    f_horn1 = (300, 0x701, 3, bytes.fromhex("062f010303080055"), 1, 8)
+    f_horn2 = (10, 0x701, 3, bytes.fromhex("062f010303000055"), 1, 8)
+    f_horn3 = (10, 0x011, 2, bytes.fromhex("0400000000000000"), 1, 8)
     raw_horn = protocol.build_can_script("гудок", [f_horn1, f_horn2, f_horn3], repeat=1)
     dec_horn = protocol.decode_can_script(raw_horn)
     assert "Horn ON" in dec_horn["frames"][0]["description"]
@@ -192,10 +192,10 @@ def test_explain_can_frame_and_script():
     assert "Звуковой сигнал клаксона" in dec_horn["summary"]
 
     # RemoteOn script
-    f_on1 = (2000, 0x394, 2, bytes.fromhex("fcff0fff001ff000"))
-    f_on2 = (20, 0x092, 0, bytes.fromhex("0000600000000000"))
-    f_on3 = (21, 0x011, 1, bytes.fromhex("00800a1b00000000"))
-    f_on4 = (5, 0x011, 1, bytes.fromhex("0000090000000000"))
+    f_on1 = (5000, 0x394, 1, bytes.fromhex("fcff0fff001ff000"), 2, 8)
+    f_on2 = (50, 0x092, 1, bytes.fromhex("0000600000000000"), 0, 8)
+    f_on3 = (50, 0x011, 2, bytes.fromhex("00800a1b00000000"), 1, 8)
+    f_on4 = (10, 0x011, 2, bytes.fromhex("0000090000000000"), 1, 8)
     raw_on = protocol.build_can_script("RemoteOn", [f_on1, f_on2, f_on3, f_on4], repeat=1)
     dec_on = protocol.decode_can_script(raw_on)
     assert "Запрос максимального прогрева" in dec_on["frames"][0]["description"]

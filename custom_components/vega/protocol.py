@@ -130,8 +130,7 @@ SENSOR_DEFS: dict[int, dict] = {
     2898: {"name": "battery_temp", "title": "Температура ВВБ", "unit": "°C", "type": "int", "w": 1, "signed": True},
     2901: {"name": "coolant_temp", "title": "Температура ОЖ", "unit": "°C", "type": "int", "w": 1, "signed": True},
     2906: {"name": "climate_target_temp", "title": "Климат: уставка", "unit": "°C", "type": "float"},
-    # 2907 is 0 when the blower is stopped and 1..7 while it runs, including
-    # every observed remote-preheat session.
+    # 2907: 0 stopped, 1..8 running (8 verified against OEM HVAC).
     2907: {"name": "climate_fan_speed", "title": "Климат: скорость вентилятора", "unit": "", "type": "int", "w": 1},
     # Doors: 2831-2834 are consecutive and all 0 while the car is closed (matches
     # evolute all-off). Which sub-id is which door is TENTATIVE until verified by
@@ -151,11 +150,17 @@ SENSOR_DEFS: dict[int, dict] = {
     2917: {"name": "inside_temp_ac", "title": "Температура салона (климат)", "unit": "°C", "type": "int", "w": 1, "signed": True},
     2918: {"name": "steering_wheel_heater", "title": "Подогрев руля", "unit": "", "type": "int", "w": 1},
     2920: {"name": "outside_temp_ac", "title": "Температура снаружи (климат)", "unit": "°C", "type": "int", "w": 1, "signed": True},
+    # Passive F515 telemetry installed by climate_profile; 255 = CAN timeout.
+    2924: {"name": "seat_heater_rear_right", "title": "Подогрев заднего правого сиденья", "unit": "", "type": "int", "w": 1, "valid_range": (0, 3)},
+    2925: {"name": "climate_air_distribution", "title": "Климат: направление обдува", "unit": "", "type": "int", "w": 1, "valid_range": (0, 7)},
 }
 
 
 def map_enum(sid: int, value):
     """Translate a coded int into its label when SENSOR_DEFS declares an enum."""
+    valid = SENSOR_DEFS.get(sid, {}).get("valid_range")
+    if valid is not None and not valid[0] <= value <= valid[1]:
+        return None
     labels = SENSOR_DEFS.get(sid, {}).get("enum")
     if labels and isinstance(value, int):
         return labels.get(value, str(value))
@@ -204,7 +209,7 @@ def decode_sensor(sid: int, val_bytes: bytes) -> dict:
         "id": sid,
         "name": sdef.get("name", f"sensor_{sid}"),
         "title": sdef.get("title", f"Датчик {sid}"),
-        "value": val if val is not None else val_bytes.hex(),
+        "value": val if val is not None or "valid_range" in sdef else val_bytes.hex(),
         "unit": sdef.get("unit", ""),
         "raw_hex": val_bytes.hex(),
         "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -245,11 +250,27 @@ def build_set_setting_frame(req_id: int, setting_id: int, sub_id: int, val: byte
     return build_frame(CMD_COMMAND, payload)
 
 
-def format_script_slot(delay_ms: int, can_id: int, bus: int, payload: bytes) -> bytes:
-    """Format one 15-byte slot in a Setting 5502 buffer."""
-    delay_word = (delay_ms & 0x7FFF) | 0x8000
-    p8 = (payload[:8] if payload else b"").ljust(8, b"\x00")
-    return struct.pack("<HIB", delay_word, can_id, bus) + p8
+CAN_SCRIPT_FORMAT_VERSION = 2
+
+
+def format_script_slot(delay_ms: int, can_id: int, bus: int, payload: bytes,
+                       count: int, dlc: int) -> bytes:
+    """Native 5502 row: bus index[1:0], delay/10[11:2], DLC[15:12].
+
+    Byte 6 is send count, not the bus. Bus in public documents is 1..3.
+    Confirmed against Configurator 1.28.46 encode/decode and tracker snapshots.
+    """
+    _integer(delay_ms, 0, 10230, "delay_ms")
+    if delay_ms % 10:
+        raise ValueError("delay_ms: требуется шаг 10 мс")
+    _integer(can_id, 0, 0x1FFFFFFF, "can_id")
+    _integer(bus, 1, 3, "bus")
+    _integer(count, 0, 255, "count")
+    _integer(dlc, 0, 8, "dlc")
+    if not isinstance(payload, bytes) or len(payload) != 8:
+        raise ValueError("data: требуется ровно 8 байт хранения кадра")
+    header = (dlc << 12) | ((delay_ms // 10) << 2) | (bus - 1)
+    return struct.pack("<HIB", header, can_id, count) + payload
 
 
 def explain_can_frame(bus: int, can_id: int, data: bytes | str) -> str:
@@ -260,7 +281,7 @@ def explain_can_frame(bus: int, can_id: int, data: bytes | str) -> str:
         data = bytes(data)
 
     pfx = f"0x{can_id:03X}"
-    bus_label = "Body" if bus == 1 else ("EV/Diag" if bus == 2 else f"Bus{bus}")
+    bus_label = f"CAN{bus}"
 
     # UDS Diagnostic requests
     if can_id == 0x701:
@@ -287,11 +308,13 @@ def explain_can_frame(bus: int, can_id: int, data: bytes | str) -> str:
             if data[1:3] == b"\x44\x0a":
                 parts.append("включение охлаждения (A/C ON)")
             elif data[1:3] == b"\x58\x0a":
-                parts.append("климат Auto 22°C")
+                parts.append("команда климата 22°C")
             elif data[1:3] == b"\x80\x0a":
                 parts.append("максимальный прогрев (Heating ON)")
             elif data[1:3] == b"\x00\x09":
                 parts.append("сброс триггера команды (снятие импульса / idle)")
+        if len(data) > 3 and data[3] == 0x0C:
+            parts.append("подогрев водителя: максимум; переднего пассажира: выключить")
         if len(data) > 3 and data[3] == 0x5B:
             parts.append("предустановка обдува климата")
         if len(data) >= 6:
@@ -308,14 +331,14 @@ def explain_can_frame(bus: int, can_id: int, data: bytes | str) -> str:
 
     # Observed in climate scripts; a standalone Remote On effect is unverified.
     if can_id == 0x092:
+        if data == bytes.fromhex("0c00600000000000"):
+            return f"CAN ({pfx}, {bus_label}): Подогрев заднего правого сиденья и руля: максимум"
         if len(data) > 2 and data[2] == 0x60:
             return f"CAN ({pfx}, {bus_label}): Кадр из климатических скриптов; самостоятельный Remote On не подтверждён"
         return f"CAN ({pfx}, {bus_label}): Назначение кадра не подтверждено"
 
     # HVAC Comfort preset
     if can_id == 0x093:
-        if data.startswith(bytes.fromhex("24c3ccc0")):
-            return f"HVAC ({pfx}, {bus_label}): Уставка климата 22°C Auto"
         return f"HVAC ({pfx}, {bus_label}): Конфигурация климат-контроля"
 
     # Tailgate control
@@ -328,10 +351,14 @@ def explain_can_frame(bus: int, can_id: int, data: bytes | str) -> str:
 
     # HVAC target control
     if can_id == 0x394:
-        if data.startswith(bytes.fromhex("fcff0fff")):
+        if data == bytes.fromhex("fcff2fff201f5000"):
+            return f"HVAC ({pfx}, {bus_label}): Запрос 22°C, в лицо и ноги, вентилятор максимум"
+        if data == bytes.fromhex("fcff1fff201f5000"):
+            return f"HVAC ({pfx}, {bus_label}): Запрос 22°C, в лицо, вентилятор максимум"
+        if data == bytes.fromhex("fcff0fff001ff000"):
             return f"HVAC ({pfx}, {bus_label}): Запрос максимального прогрева (HI, максимальный нагрев)"
-        if data.startswith(bytes.fromhex("7cff0fff")):
-            return f"HVAC ({pfx}, {bus_label}): Запрос поддержания 22°C (Auto)"
+        if data in (bytes.fromhex("7cff0fff001f5000"), bytes.fromhex("fcff0fff001f5000")):
+            return f"HVAC ({pfx}, {bus_label}): Запрос поддержания 22°C"
         if data.startswith(bytes.fromhex("4100")):
             return f"HVAC ({pfx}, {bus_label}): Запрос кондиционирования (Cooling LO)"
         return f"HVAC ({pfx}, {bus_label}): Управление целевым режимом климата"
@@ -345,6 +372,8 @@ def explain_can_script(script: dict) -> str:
     if not frames:
         return "Пустой скрипт"
 
+    if any(f.get("can_id") == 0x394 and f.get("data", "").lower() == "fcff2fff201f5000" for f in frames):
+        return "Запрос климата 22°C, обдув в лицо и ноги, вентилятор максимум; команды обогрева"
     can_ids = {f.get("can_id") for f in frames}
     all_data = [bytes.fromhex(f.get("data", "")) for f in frames]
 
@@ -361,7 +390,7 @@ def explain_can_script(script: dict) -> str:
         for d in all_data
     )
     has_preheat = any(
-        d.startswith(bytes.fromhex("fcff0fff")) or (len(d) >= 3 and d[1:3] == b"\x80\x0a")
+        d == bytes.fromhex("fcff0fff001ff000") or (len(d) >= 3 and d[1:3] == b"\x80\x0a")
         for d in all_data
     )
     has_cooling = any(
@@ -370,7 +399,7 @@ def explain_can_script(script: dict) -> str:
     )
     has_auto22 = any(
         d.startswith(bytes.fromhex("7cff0fff"))
-        or d.startswith(bytes.fromhex("24c3ccc0"))
+
         or (len(d) >= 3 and d[1:3] == b"\x58\x0a")
         for d in all_data
     )
@@ -385,7 +414,7 @@ def explain_can_script(script: dict) -> str:
     if has_cooling:
         return "Включение охлаждения салона (HVAC + BCM)"
     if has_auto22:
-        return "Включение климат-контроля 22°C Auto (HVAC + BCM)"
+        return "Команды климат-контроля 22°C (HVAC + BCM)"
     if has_preheat:
         return "Включение максимального прогрева салона (HVAC + BCM)"
     if has_lock:
@@ -419,46 +448,41 @@ def explain_can_script(script: dict) -> str:
 
 
 def decode_can_script(buf: bytes) -> dict:
-    """Decode an 82-byte Setting 5502 slot buffer into a readable dict.
+    """Decode native Setting 5502, trimming only canonical trailing empty rows.
 
-    Inverse of build_can_script: {name, repeat, frames:[{delay_ms, can_id, bus,
-    data (hex), description}], summary}. Only non-padding frames (the 4ms/id0 filler)
-    are returned.
+    Unknown flags/padding remain in raw; the runtime only permits edits when
+    re-encoding reproduces every byte. Interior empty rows retain their position.
     """
     if len(buf) != CAN_SCRIPT_SIZE:
         raise ValueError("CAN-скрипт должен содержать ровно 82 байта")
     name = buf[:16].split(b"\x00")[0].decode("cp1251", "replace")
+    filler = format_script_slot(10, 0, 1, bytes(8), 0, 8)
+    rows = [buf[17+i*15:32+i*15] for i in range(4)]
+    while rows and rows[-1] == filler:
+        rows.pop()
     frames = []
-    for s in range(4):
-        off = 17 + s * 15
-        delay_word = struct.unpack("<H", buf[off : off + 2])[0]
-        can_id = struct.unpack("<I", buf[off + 2 : off + 6])[0]
-        bus = buf[off + 6]
-        data = buf[off + 7 : off + 15]
-        delay_ms = delay_word & 0x7FFF
-        # filler slot from build_can_script: delay 4ms, id 0, zero payload
-        if can_id == 0 and bus == 0 and not any(data) and delay_word == 0x8004:
-            continue
-        frames.append(
-            {
-                "delay_ms": delay_ms,
-                "can_id": can_id,
-                "bus": bus,
-                "data": data.hex(),
-                "description": explain_can_frame(bus, can_id, data),
-            }
-        )
-    repeat = buf[77] if len(buf) > 77 else 1
-    res = {"name": name, "repeat": repeat, "frames": frames, "raw": buf.hex()}
+    for row in rows:
+        header, can_id, count = struct.unpack_from("<HIB", row)
+        bus, dlc = (header & 3) + 1, header >> 12
+        data = row[7:15]
+        frames.append({"delay_ms": ((header >> 2) & 1023) * 10,
+                       "can_id": can_id, "bus": bus, "count": count, "dlc": dlc,
+                       "data": data.hex(), "description": explain_can_frame(bus, can_id, data)})
+    res = {"format_version": CAN_SCRIPT_FORMAT_VERSION, "name": name,
+           "frame_type": (buf[16] >> 5) & 3, "chain_next": bool(buf[16] & 128),
+           "repeat": buf[77], "frames": frames, "raw": buf.hex()}
     res["summary"] = explain_can_script(res)
     return res
 
 
 def build_can_script_from_dict(spec: dict) -> bytes:
-    """Validate an editor document before encoding; never truncate user input."""
+    """Require versioned, explicit fields; reject legacy drafts before I/O."""
     if not isinstance(spec, dict):
         raise ValueError("Скрипт должен быть JSON-объектом")
-    _check_fields(spec, {"name", "repeat", "frames"}, {"summary", "raw", "slot"}, "script")
+    if type(spec.get("format_version")) is not int or spec["format_version"] != CAN_SCRIPT_FORMAT_VERSION:
+        raise ValueError("Нужен format_version=2: перечитайте CAN-скрипт; старый формат небезопасен")
+    _check_fields(spec, {"format_version", "name", "repeat", "frame_type", "chain_next", "frames"},
+                  {"summary", "raw", "slot"}, "script")
     name = spec["name"]
     if not isinstance(name, str) or any(ord(c) < 32 for c in name):
         raise ValueError("name: ожидается строка без управляющих символов")
@@ -469,29 +493,26 @@ def build_can_script_from_dict(spec: dict) -> bytes:
     if len(encoded) > 16:
         raise ValueError("name: максимум 16 байт Windows-1251")
     _integer(spec["repeat"], 0, 255, "repeat")
+    _integer(spec["frame_type"], 1, 2, "frame_type")
+    if type(spec["chain_next"]) is not bool:
+        raise ValueError("chain_next: требуется true или false")
     frames = spec["frames"]
     if not isinstance(frames, list) or len(frames) > 4:
         raise ValueError("frames: требуется список из 0–4 кадров")
+    rows = []
     for i, frame in enumerate(frames):
         label = f"frames[{i}]"
         if not isinstance(frame, dict):
             raise ValueError(f"{label}: ожидается объект")
-        _check_fields(frame, {"delay_ms", "can_id", "bus", "data"}, {"description"}, label)
-        _integer(frame["delay_ms"], 0, 32767, f"{label}.delay_ms")
-        _integer(frame["can_id"], 0, 0x1FFFFFFF, f"{label}.can_id")
-        _integer(frame["bus"], 0, 3, f"{label}.bus")
+        _check_fields(frame, {"delay_ms", "can_id", "bus", "count", "dlc", "data"}, {"description"}, label)
+        _integer(frame["can_id"], 0, 0x7FF if spec["frame_type"] == 1 else 0x1FFFFFFF, f"{label}.can_id")
         if not isinstance(frame["data"], str) or not re.fullmatch(r"[0-9a-fA-F]{16}", frame["data"]):
             raise ValueError(f"{label}.data: нужны ровно 8 байт (16 HEX-символов)")
-    slots = [
-        (
-            int(f.get("delay_ms", 4)),
-            int(f.get("can_id", 0)),
-            int(f.get("bus", 0)),
-            bytes.fromhex(f.get("data", "")),
-        )
-        for f in spec.get("frames", [])
-    ]
-    return build_can_script(spec.get("name", ""), slots, int(spec.get("repeat", 1)))
+        rows.append(format_script_slot(frame["delay_ms"], frame["can_id"], frame["bus"],
+                                       bytes.fromhex(frame["data"]), frame["count"], frame["dlc"]))
+    rows.extend([format_script_slot(10, 0, 1, bytes(8), 0, 8)] * (4-len(rows)))
+    header = (spec["frame_type"] << 5) | (int(spec["chain_next"]) << 7)
+    return encoded.ljust(16, b"\0") + bytes([header]) + b"".join(rows) + bytes([spec["repeat"]]) + bytes(4)
 
 
 def _check_fields(value: dict, required: set, optional: set, label: str) -> None:
@@ -658,19 +679,15 @@ def command_script_bindings(scenarios: list[dict]) -> dict:
     return result
 
 
-def build_can_script(name: str, slots: list, repeat: int = 1) -> bytes:
-    """Build the complete 82-byte buffer for Setting 5502."""
-    name_bytes = name.encode("cp1251", errors="replace")[:16].ljust(16, b"\x00")
-    hdr = b"\x20"
-    slots_data = bytearray()
-    for s in range(4):
-        if s < len(slots):
-            delay_ms, can_id, bus, p8 = slots[s]
-            slots_data.extend(format_script_slot(delay_ms, can_id, bus, p8))
-        else:
-            slots_data.extend(format_script_slot(4, 0, 0, b"\x00" * 8))
-    trailer = struct.pack("<BII", repeat, 0, 0)[:5]
-    return bytes(name_bytes + hdr + slots_data + trailer)
+def build_can_script(name: str, slots: list, repeat: int = 1, *,
+                     frame_type: int = 1, chain_next: bool = False) -> bytes:
+    """Build from explicit (delay_ms, can_id, bus, bytes8, count, dlc) rows."""
+    frames = []
+    for delay_ms, can_id, bus, payload, count, dlc in slots:
+        frames.append(dict(delay_ms=delay_ms, can_id=can_id, bus=bus,
+                           data=payload.hex(), count=count, dlc=dlc))
+    return build_can_script_from_dict(dict(format_version=CAN_SCRIPT_FORMAT_VERSION,
+        name=name, repeat=repeat, frame_type=frame_type, chain_next=chain_next, frames=frames))
 
 
 # --- Vega binary frame parsing from a byte buffer ---

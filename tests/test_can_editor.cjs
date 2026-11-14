@@ -28,8 +28,8 @@ function editor(slot = 5) {
   const e = new Editor();
   e.setConfig({entity: 'sensor.test_can_scripts'});
   e._view = 'slots';
-  const data = {slot, name: 'RemoteOn', repeat: 0, raw: 'aa'.repeat(82), editable: true,
-    frames: [{delay_ms: 20, can_id: 146, bus: 0, data: '0000600000000000'}]};
+  const data = {slot, name: 'RemoteOn', repeat: 0, format_version: 2, frame_type: 1, chain_next: false, raw: 'aa'.repeat(82), editable: true,
+    frames: [{delay_ms: 20, can_id: 146, bus: 1, count: 0, dlc: 8, data: '0000600000000000'}]};
   const calls = [];
   e.hass = {states: {sensor: {}, 'sensor.test_can_scripts': {attributes: {
     entry_id: 'tracker-one', slots: [data], command_bindings: {}, scenarios_read_at: 'today',
@@ -277,4 +277,39 @@ test('pending command write blocks duplicate save, close and adding scenarios', 
   assert.equal(count, 1);
   resolve({response: {verified: true, written: ['4001/3']}});
   await pending;
+});
+
+test('native fields survive slot and command drafts, including zero send count', async () => {
+  const {e, calls, data} = editor();
+  data.chain_next = true;
+  e._openModal(data);
+  const text = e.querySelector('#slot-json').value;
+  const doc = JSON.parse(text);
+  assert.equal(doc.format_version, 2);
+  assert.equal(doc.chain_next, true);
+  assert.equal(doc.frames[0].bus, 1);
+  assert.equal(doc.frames[0].count, 0);
+  assert.equal(doc.frames[0].dlc, 8);
+  assert.match(e.querySelector('#frames-target').innerHTML, /Отправок: 0/);
+  await e._save(5, text);
+  assert.equal(calls[0].service_data.script.frames[0].count, 0);
+  const bundle = JSON.parse(commandEditor().e.querySelector('#slot-json').value);
+  assert.equal(bundle.scripts[0].format_version, 2);
+  assert.equal(bundle.scripts[0].frames[0].count, 0);
+});
+
+test('legacy drafts, missing count and nonrepresentable delays cannot be saved', async () => {
+  const {e, calls, data} = editor();
+  const original = JSON.parse(e.querySelector('#slot-json').value);
+  for (const mutation of [d => delete d.format_version, d => delete d.frames[0].count,
+      d => delete d.frames[0].dlc, d => d.frames[0].delay_ms = 21,
+      d => d.frames[0].bus = 0, d => d.frame_type = 3]) {
+    const doc = JSON.parse(JSON.stringify(original)); mutation(doc);
+    await e._save(5, JSON.stringify(doc));
+    assert.ok(e.querySelector('#editor-error').textContent);
+  }
+  assert.equal(calls.length, 0);
+  delete data.format_version;
+  e._openModal(data);
+  assert.equal(e._editable, false);
 });

@@ -26,6 +26,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             entry: types.SimpleNamespace(
                 async_write_can_script=AsyncMock(return_value={"verified": True, "slot": 5}),
                 async_read_can_scripts=AsyncMock(return_value=[{}] * 8),
+                async_read_sensors=AsyncMock(return_value={"complete": True, "samples": []}),
                 async_write_commands=AsyncMock(return_value={"verified": True, "written": ["4001/3"]}),
                 async_prepare_hv_battery=AsyncMock(return_value={"plan_id": "plan-two", "configured": False}),
                 async_configure_hv_battery=AsyncMock(return_value={"verified": True, "written": ["5500/0"]}),
@@ -69,6 +70,21 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
                                                       blocking=True, return_response=True)
         self.assertEqual(response, {"slots": 8, "scenarios_read": False})
         self.runtimes["two"].async_read_can_scripts.assert_not_called()
+
+    async def test_sensor_pull_targets_one_tracker(self):
+        response = await self.hass.services.async_call(
+            "vega", "read_sensors", {"entry_id": "two", "sensor_ids": [2906, 2918], "timeout": 1},
+            blocking=True, return_response=True)
+        self.assertTrue(response["complete"])
+        self.runtimes["two"].async_read_sensors.assert_awaited_once_with([2906, 2918], 1)
+        self.runtimes["one"].async_read_sensors.assert_not_called()
+
+    async def test_sensor_pull_requires_target_with_multiple_trackers(self):
+        with self.assertRaises(ServiceValidationError):
+            await self.hass.services.async_call("vega", "read_sensors", {},
+                                                blocking=True, return_response=True)
+        for runtime in self.runtimes.values():
+            runtime.async_read_sensors.assert_not_called()
 
     async def test_command_bundle_targets_one_tracker_and_returns_verification(self):
         document = {"scenarios": [], "scripts": []}

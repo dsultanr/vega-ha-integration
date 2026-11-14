@@ -14,7 +14,7 @@ function explainCanFrame(bus, canId, dataHex) {
   const d = (dataHex || "").toLowerCase().replace(/\s+/g, "");
   const cid = typeof canId === "string" ? (canId.startsWith("0x") ? parseInt(canId, 16) : parseInt(canId, 10)) : (canId || 0);
   const pfx = "0x" + cid.toString(16).toUpperCase();
-  const busLabel = bus === 1 ? "Body" : (bus === 2 ? "EV/Diag" : "Bus " + bus);
+  const busLabel = `CAN${bus}`;
 
   if (cid === 0x701) {
     if (d.startsWith("03220203aa21")) return `UDS (${pfx}, ${busLabel}): Постановка на охрану (закрыть ЦЗ)`;
@@ -31,7 +31,7 @@ function explainCanFrame(bus, canId, dataHex) {
     if (d.length >= 6) {
       const b12 = d.slice(2, 6);
       if (b12 === "440a") parts.push("включение охлаждения (A/C ON)");
-      else if (b12 === "580a") parts.push("климат Auto 22°C");
+      else if (b12 === "580a") parts.push("команда климата 22°C");
       else if (b12 === "800a") {
         parts.push("максимальный прогрев (Heating ON)");
       } else if (b12 === "0009") parts.push("сброс триггера команды (снятие импульса / idle)");
@@ -51,7 +51,6 @@ function explainCanFrame(bus, canId, dataHex) {
     return `CAN (${pfx}, ${busLabel}): Назначение кадра не подтверждено`;
   }
   if (cid === 0x093) {
-    if (d.startsWith("24c3ccc0")) return `HVAC (${pfx}, ${busLabel}): Уставка климата 22°C Auto`;
     return `HVAC (${pfx}, ${busLabel}): Конфигурация климат-контроля`;
   }
   if (cid === 0x09a) {
@@ -60,8 +59,8 @@ function explainCanFrame(bus, canId, dataHex) {
     return `Tailgate (${pfx}, ${busLabel}): Модуль двери багажника`;
   }
   if (cid === 0x394) {
-    if (d.startsWith("fcff0fff")) return `HVAC (${pfx}, ${busLabel}): Запрос максимального прогрева (HI, максимальный нагрев)`;
-    if (d.startsWith("7cff0fff")) return `HVAC (${pfx}, ${busLabel}): Запрос поддержания 22°C (Auto)`;
+    if (d === "fcff0fff001ff000") return `HVAC (${pfx}, ${busLabel}): Запрос максимального прогрева (HI, максимальный нагрев)`;
+    if (["7cff0fff001f5000", "fcff0fff001f5000"].includes(d)) return `HVAC (${pfx}, ${busLabel}): Запрос поддержания 22°C`;
     if (d.startsWith("4100")) return `HVAC (${pfx}, ${busLabel}): Запрос кондиционирования (Cooling LO)`;
     return `HVAC (${pfx}, ${busLabel}): Управление целевым режимом климата`;
   }
@@ -71,12 +70,13 @@ function explainCanFrame(bus, canId, dataHex) {
 function explainCanScript(script) {
   const frames = script.frames || [];
   if (!frames.length) return "Пустой скрипт";
+  if (frames.some(f => Number(f.can_id) === 0x394 && (f.data || "").toLowerCase() === "fcff2fff201f5000")) return "Запрос климата 22°C, обдув в лицо и ноги, вентилятор максимум; команды обогрева";
   const allHex = frames.map(f => (f.data || "").toLowerCase().replace(/\s+/g, ""));
   const canIds = new Set(frames.map(f => typeof f.can_id === "string" ? (f.can_id.startsWith("0x") ? parseInt(f.can_id, 16) : parseInt(f.can_id, 10)) : (f.can_id || 0)));
 
-  const hasPreheat = allHex.some(d => d.startsWith("fcff0fff") || (d.length >= 6 && d.slice(2, 6) === "800a"));
+  const hasPreheat = allHex.some(d => d === "fcff0fff001ff000" || (d.length >= 6 && d.slice(2, 6) === "800a"));
   const hasCooling = allHex.some(d => d.startsWith("4100") || (d.length >= 6 && d.slice(2, 6) === "440a"));
-  const hasAuto22 = allHex.some(d => d.startsWith("7cff0fff") || d.startsWith("24c3ccc0") || (d.length >= 6 && d.slice(2, 6) === "580a"));
+  const hasAuto22 = allHex.some(d => d.startsWith("7cff0fff") || (d.length >= 6 && d.slice(2, 6) === "580a"));
   const hasLock = allHex.some(d => d.startsWith("03220203aa21") || (d.length >= 12 && d.slice(8, 12) === "aa21"));
   const hasUnlock = allHex.some(d => d.startsWith("032202030000") || (d.length >= 12 && d.slice(8, 12) === "0002"));
   const hasHorn = allHex.some(d => d.startsWith("062f0103") || d.startsWith("04"));
@@ -85,7 +85,7 @@ function explainCanScript(script) {
   const hasReset = allHex.some((d, i) => Number(frames[i].can_id) === 0x011 && d.length >= 6 && d.slice(2, 6) === "0009");
 
   if (hasCooling) return "Включение охлаждения салона (HVAC + BCM)";
-  if (hasAuto22) return "Включение климат-контроля 22°C Auto (HVAC + BCM)";
+  if (hasAuto22) return "Команды климат-контроля 22°C (HVAC + BCM)";
   if (hasPreheat) return "Включение максимального прогрева салона (HVAC + BCM)";
   if (hasLock) return "Закрытие центрального замка / постановка на охрану (UDS + BCM)";
   if (hasUnlock) return "Открытие центрального замка / снятие с охраны (UDS + BCM)";
@@ -116,24 +116,30 @@ const commandNames = {
 
 function validateScript(script) {
   if (!script || typeof script !== "object" || Array.isArray(script)) throw new Error("Нужен JSON-объект скрипта");
-  const keys = Object.keys(script);
-  if (keys.some(k => !["name", "repeat", "frames"].includes(k))) throw new Error("Допустимые поля: name, repeat, frames");
+  if (script.format_version !== 2) throw new Error("Нужен format_version=2: перечитайте CAN-скрипт, старый формат небезопасен");
+  const allowed = ["format_version", "name", "repeat", "frame_type", "chain_next", "frames"];
+  if (Object.keys(script).some(k => !allowed.includes(k))) throw new Error("Неизвестное поле скрипта");
   if (typeof script.name !== "string" || script.name.length > 16 || /[\x00-\x1f]/.test(script.name)) throw new Error("name: строка до 16 символов Windows-1251");
   if (!Number.isInteger(script.repeat) || script.repeat < 0 || script.repeat > 255) throw new Error("repeat: целое число 0…255");
+  if (![1, 2].includes(script.frame_type)) throw new Error("frame_type: 1 (11 бит) или 2 (29 бит)");
+  if (typeof script.chain_next !== "boolean") throw new Error("chain_next: true или false");
   if (!Array.isArray(script.frames) || script.frames.length > 4) throw new Error("frames: список из 0–4 кадров");
   script.frames.forEach((f, i) => {
     if (!f || typeof f !== "object" || Array.isArray(f)) throw new Error(`Кадр ${i + 1}: нужен объект`);
-    if (Object.keys(f).some(k => !["delay_ms", "can_id", "bus", "data"].includes(k))) throw new Error(`Кадр ${i + 1}: неизвестное поле`);
-    for (const [key, max] of [["delay_ms", 32767], ["can_id", 0x1fffffff], ["bus", 3]]) {
-      if (!Number.isInteger(f[key]) || f[key] < 0 || f[key] > max) throw new Error(`Кадр ${i + 1}, ${key}: целое число 0…${max}`);
+    if (Object.keys(f).some(k => !["delay_ms", "can_id", "bus", "count", "dlc", "data"].includes(k))) throw new Error(`Кадр ${i + 1}: неизвестное поле`);
+    for (const [key, min, max] of [["delay_ms", 0, 10230], ["can_id", 0, script.frame_type === 1 ? 0x7ff : 0x1fffffff], ["bus", 1, 3], ["count", 0, 255], ["dlc", 0, 8]]) {
+      if (!Number.isInteger(f[key]) || f[key] < min || f[key] > max) throw new Error(`Кадр ${i + 1}, ${key}: целое число ${min}…${max}`);
     }
+    if (f.delay_ms % 10 !== 0) throw new Error(`Кадр ${i + 1}: delay_ms с шагом 10 мс`);
     if (typeof f.data !== "string" || !/^[0-9a-fA-F]{16}$/.test(f.data)) throw new Error(`Кадр ${i + 1}: data должен содержать 16 HEX-символов`);
   });
 }
 
 function scriptDocument(s) {
-  return {slot: s.slot, name: s.name, repeat: s.repeat,
-    frames: s.frames.map(f => ({delay_ms: f.delay_ms, can_id: f.can_id, bus: f.bus, data: f.data}))};
+  return {slot: s.slot, format_version: s.format_version, name: s.name, repeat: s.repeat,
+    frame_type: s.frame_type, chain_next: s.chain_next,
+    frames: (s.frames || []).map(f => ({delay_ms: f.delay_ms, can_id: f.can_id, bus: f.bus,
+      count: f.count, dlc: f.dlc, data: f.data}))};
 }
 
 function validateCommandDocument(doc) {
@@ -469,7 +475,7 @@ class VegaCanEditor extends HTMLElement {
     this._editorEntryId = this._attributes().entry_id;
     this._bundleOriginalIndices = indices.slice();
     this._editorBinding = action ? {...this._attributes().command_bindings[action]} : null;
-    this._editable = scenarios.every(s => s.editable) && scripts.every(s => s.editable) && slots.length === scripts.length;
+    this._editable = scenarios.every(s => s.editable) && scripts.every(s => s.editable && s.format_version === 2) && slots.length === scripts.length;
     this._activeSlot = null;
     this._activeCommand = action || `scenario:${indices.join(",")}`;
     this._bundleContext = JSON.parse(JSON.stringify(this._scenarios()));
@@ -538,7 +544,7 @@ class VegaCanEditor extends HTMLElement {
         lines.push(`Сценарий ${s.index}: дополнительные действия (SMS, физические выходы и др.) сохраняются без изменений.`);
     }
     for (const s of doc.scripts) {
-      lines.push(`CAN-слот ${s.slot} «${s.name}»: ${s.frames.length} кадров, повтор ${s.repeat}.`);
+      lines.push(`CAN-слот ${s.slot} «${s.name}»: ${s.frames.length} кадров, повтор ${s.repeat}, следующий слот: ${s.chain_next ? "да" : "нет"}.`);
       const others = this._bundleContext.filter(c => c.slot === s.slot && !doc.scenarios.some(d => d.index === c.index));
       if (others.length) lines.push(`Этот CAN-слот также используется сценариями: ${others.map(s => s.index).join(", ")}. Изменение кадров повлияет и на них.`);
     }
@@ -580,7 +586,7 @@ class VegaCanEditor extends HTMLElement {
     this._activeSlot = slotData.slot;
     this._baselineRaw = slotData.raw;
     this._editorEntryId = this._attributes().entry_id;
-    this._editable = slotData.editable === true && /^[0-9a-f]{164}$/i.test(slotData.raw || "");
+    this._editable = slotData.editable === true && slotData.format_version === 2 && /^[0-9a-f]{164}$/i.test(slotData.raw || "");
     this._modalContainer.innerHTML = `
       <div class="modal-backdrop" id="backdrop">
         <div class="modal-box" id="box">
@@ -646,7 +652,7 @@ class VegaCanEditor extends HTMLElement {
     framesEl.innerHTML = frames
       .map((f, i) => {
         const busNum = f.bus || 0;
-        const busName = busNum === 1 ? "Body (1)" : busNum === 2 ? "EV/Diag (2)" : `Bus ${busNum}`;
+        const busName = `CAN${busNum}`;
         const canIdNum = typeof f.can_id === "string" ? (f.can_id.startsWith("0x") ? parseInt(f.can_id, 16) : parseInt(f.can_id, 10)) : (f.can_id || 0);
         const canIdHex = `0x${canIdNum.toString(16).toUpperCase()}`;
         const actionDesc = f.description || explainCanFrame(busNum, canIdNum, f.data);
@@ -657,6 +663,8 @@ class VegaCanEditor extends HTMLElement {
               <span class="tag">${canIdHex}</span>
               <span class="tag">${busName}</span>
               <span class="tag">${f.delay_ms || 0} мс</span>
+              <span class="tag">Отправок: ${f.count ?? "?"}</span>
+              <span class="tag">DLC: ${f.dlc ?? "?"}</span>
             </div>
             <div class="frame-action">📌 ${escapeHtml(actionDesc)}</div>
             <div class="frame-hex">DATA: ${escapeHtml(f.data || "0000000000000000")}</div>
@@ -670,16 +678,7 @@ class VegaCanEditor extends HTMLElement {
     const body = this.querySelector("#modal-body");
     if (!body) return;
 
-    const jsonSpec = {
-      name: s.name,
-      repeat: s.repeat ?? 1,
-      frames: (s.frames || []).map((f) => ({
-        delay_ms: f.delay_ms,
-        can_id: f.can_id,
-        bus: f.bus,
-        data: f.data,
-      })),
-    };
+    const {slot, ...jsonSpec} = scriptDocument(s);
 
     body.innerHTML = `
       <div class="hint">${escapeHtml(this._bindingText(s.slot))}</div>
@@ -690,7 +689,7 @@ class VegaCanEditor extends HTMLElement {
       <div class="frames-list" id="frames-target"></div>
 
       <div class="section-title" style="margin-top:8px;">Редактор (JSON)</div>
-      <div class="hint">До 4 кадров, data — ровно 16 HEX-символов. Запись проверяется чтением и не запускает скрипт.</div>
+      <div class="hint">До 4 кадров. bus — CAN1–CAN3; delay_ms — 0–10230 мс, шаг 10; count — число отправок; dlc — 0–8. data хранит 8 байт (16 HEX-символов), передаётся dlc байт. repeat — повтор всей программы; chain_next — переход к следующему слоту. Запись проверяется чтением и не запускает скрипт.</div>
       <div class="hint">${this._editable ? "" : "Перечитайте слоты. Если запись остаётся недоступной, формат этого слота пока не поддерживается редактором."}</div>
       <textarea class="json-area" id="slot-json"></textarea>
       <div class="error" id="editor-error" role="alert"></div>

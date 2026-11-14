@@ -8,7 +8,7 @@ DOMAIN = "vega"
 
 # Bundled hold-to-confirm Lovelace card (independent of the evolute integration).
 # Bump CARD_VERSION together with the JS so the cache-buster forces a reload.
-CARD_VERSION = "0.3.5"
+CARD_VERSION = "0.3.6"
 PANEL_PATH = "vega-config"
 CARD_FILENAME = "vega-hold-button.js"
 CARD_URL = f"/local/vega/{CARD_FILENAME}"
@@ -107,6 +107,8 @@ SENSOR_KEY_MAP = {
     "low_beam": "low_beam",
     "seat_heater_driver": "seat_heater_driver",
     "seat_heater_passenger": "seat_heater_passenger",
+    "seat_heater_rear_right": "seat_heater_rear_right",
+    "climate_air_distribution": "climate_air_distribution",
     "seat_vent_driver": "seat_vent_driver",
     "seat_vent_passenger": "seat_vent_passenger",
     "steering_wheel_heater": "steering_wheel_heater",
@@ -145,6 +147,8 @@ SENSOR_TYPES = {
     "gear_mode": ("Gear Mode", None, None, "mdi:car-shift-pattern", "gear_mode", None),
     "seat_heater_driver": ("Driver Seat Heater", None, None, "mdi:car-seat-heater", "seat_heater_driver", SensorStateClass.MEASUREMENT),
     "seat_heater_passenger": ("Passenger Seat Heater", None, None, "mdi:car-seat-heater", "seat_heater_passenger", SensorStateClass.MEASUREMENT),
+    "seat_heater_rear_right": ("Rear Right Seat Heater", None, None, "mdi:car-seat-heater", "seat_heater_rear_right", SensorStateClass.MEASUREMENT),
+    "climate_air_distribution": ("Climate Air Distribution", None, None, "mdi:car-ventilation", "climate_air_distribution", None),
     "seat_vent_driver": ("Driver Seat Ventilation", None, None, "mdi:car-seat-cooler", "seat_vent_driver", SensorStateClass.MEASUREMENT),
     "seat_vent_passenger": ("Passenger Seat Ventilation", None, None, "mdi:car-seat-cooler", "seat_vent_passenger", SensorStateClass.MEASUREMENT),
     "steering_wheel_heater": ("Steering Wheel Heater", None, None, "mdi:steering", "steering_wheel_heater", SensorStateClass.MEASUREMENT),

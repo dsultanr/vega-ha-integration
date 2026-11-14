@@ -1,0 +1,98 @@
+{
+  "status": "prepared_not_installed",
+  "setting": 5502,
+  "slot": 4,
+  "name": "прогрев",
+  "targets": {
+    "temperature_c": 22,
+    "airflow": "face_and_feet",
+    "airflow_sensor_2925": 2,
+    "fan": 8,
+    "driver_heat": 3,
+    "front_passenger_heat": 0,
+    "rear_right_heat": 3,
+    "steering_heat": 3
+  },
+  "frames": [
+    {
+      "can": 1,
+      "delay_ms": 5000,
+      "can_id": "394",
+      "count": 2,
+      "data_hex": "FCFF2FFF201F5000"
+    },
+    {
+      "can": 1,
+      "delay_ms": 150,
+      "can_id": "092",
+      "count": 3,
+      "data_hex": "0C00600000000000"
+    },
+    {
+      "can": 2,
+      "delay_ms": 50,
+      "can_id": "011",
+      "count": 1,
+      "data_hex": "00580A0C00000000"
+    },
+    {
+      "can": 2,
+      "delay_ms": 10,
+      "can_id": "011",
+      "count": 1,
+      "data_hex": "0000090000000000"
+    }
+  ],
+  "repeat": 1,
+  "chain_next": false,
+  "expected_original_hex": "eff0eee3f0e5e200000000000000000020d0879403000002fcff0fff001ff0001480920000000000006000000000001580110000000100800a1b000000000580110000000100000900000000000100000000",
+  "candidate_hex": "eff0eee3f0e5e200000000000000000020d0879403000002fcff2fff201f50003c8092000000030c006000000000001580110000000100580a0c000000000580110000000100000900000000000100000000",
+  "validation": {
+    "airflow_command": "OEM HVAC CAN capture verified 2026-11-14: 394 FCFF2FFF001FF800",
+    "airflow_status": "2925 = 2 and CAN378 byte4 bits4..6 = 2",
+    "native_program_execution": false,
+    "sleep_wake": false
+  },
+  "format_note": "Setting5502 document version 2; bus=1..3, count is independent of bus; 10ms delay units.",
+  "script": {
+    "format_version": 2,
+    "name": "прогрев",
+    "repeat": 1,
+    "frame_type": 1,
+    "chain_next": false,
+    "frames": [
+      {
+        "delay_ms": 5000,
+        "can_id": 916,
+        "bus": 1,
+        "count": 2,
+        "dlc": 8,
+        "data": "fcff2fff201f5000"
+      },
+      {
+        "delay_ms": 150,
+        "can_id": 146,
+        "bus": 1,
+        "count": 3,
+        "dlc": 8,
+        "data": "0c00600000000000"
+      },
+      {
+        "delay_ms": 50,
+        "can_id": 17,
+        "bus": 2,
+        "count": 1,
+        "dlc": 8,
+        "data": "00580a0c00000000"
+      },
+      {
+        "delay_ms": 10,
+        "can_id": 17,
+        "bus": 2,
+        "count": 1,
+        "dlc": 8,
+        "data": "0000090000000000"
+      }
+    ]
+  }
+}

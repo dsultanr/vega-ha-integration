@@ -1,0 +1,426 @@
+[
+  {
+    "slot": 0,
+    "name": "в охрану",
+    "repeat": 1,
+    "chain_next": false,
+    "frame_type": 1,
+    "rows": [
+      {
+        "row": 1,
+        "header": "0x807a",
+        "can_index": 2,
+        "can_label": 3,
+        "delay_ms": 300,
+        "dlc": 8,
+        "count": 2,
+        "can_id": "701",
+        "data": "03220203AA210000"
+      },
+      {
+        "row": 2,
+        "header": "0x8005",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "00000000AA210000"
+      },
+      {
+        "row": 3,
+        "header": "0x8004",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 0,
+        "can_id": "000",
+        "data": "0000000000000000"
+      },
+      {
+        "row": 4,
+        "header": "0x8004",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 0,
+        "can_id": "000",
+        "data": "0000000000000000"
+      }
+    ]
+  },
+  {
+    "slot": 1,
+    "name": "с охраны",
+    "repeat": 1,
+    "chain_next": false,
+    "frame_type": 1,
+    "rows": [
+      {
+        "row": 1,
+        "header": "0x807a",
+        "can_index": 2,
+        "can_label": 3,
+        "delay_ms": 300,
+        "dlc": 8,
+        "count": 2,
+        "can_id": "701",
+        "data": "0322020300000000"
+      },
+      {
+        "row": 2,
+        "header": "0x8005",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "0000000000020000"
+      },
+      {
+        "row": 3,
+        "header": "0x8004",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 0,
+        "can_id": "000",
+        "data": "0000000000000000"
+      },
+      {
+        "row": 4,
+        "header": "0x8004",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 0,
+        "can_id": "000",
+        "data": "0000000000000000"
+      }
+    ]
+  },
+  {
+    "slot": 2,
+    "name": "охлаждение",
+    "repeat": 2,
+    "chain_next": false,
+    "frame_type": 1,
+    "rows": [
+      {
+        "row": 1,
+        "header": "0x87d1",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 5000,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "0000005B00000000"
+      },
+      {
+        "row": 2,
+        "header": "0x8008",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 20,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "394",
+        "data": "4100000000000000"
+      },
+      {
+        "row": 3,
+        "header": "0x8015",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 50,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "00440A0000000000"
+      },
+      {
+        "row": 4,
+        "header": "0x8005",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "0000090000000000"
+      }
+    ]
+  },
+  {
+    "slot": 3,
+    "name": "22 auto",
+    "repeat": 1,
+    "chain_next": false,
+    "frame_type": 1,
+    "rows": [
+      {
+        "row": 1,
+        "header": "0x87d0",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 5000,
+        "dlc": 8,
+        "count": 2,
+        "can_id": "093",
+        "data": "24C3CCC0000C0000"
+      },
+      {
+        "row": 2,
+        "header": "0x8008",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 20,
+        "dlc": 8,
+        "count": 2,
+        "can_id": "394",
+        "data": "7CFF0FFF001F5000"
+      },
+      {
+        "row": 3,
+        "header": "0x8015",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 50,
+        "dlc": 8,
+        "count": 2,
+        "can_id": "011",
+        "data": "00580A0000000000"
+      },
+      {
+        "row": 4,
+        "header": "0x8005",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "0000090000000000"
+      }
+    ]
+  },
+  {
+    "slot": 4,
+    "name": "прогрев",
+    "repeat": 1,
+    "chain_next": false,
+    "frame_type": 1,
+    "rows": [
+      {
+        "row": 1,
+        "header": "0x87d0",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 5000,
+        "dlc": 8,
+        "count": 2,
+        "can_id": "394",
+        "data": "FCFF0FFF001FF000"
+      },
+      {
+        "row": 2,
+        "header": "0x8014",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 50,
+        "dlc": 8,
+        "count": 0,
+        "can_id": "092",
+        "data": "0000600000000000"
+      },
+      {
+        "row": 3,
+        "header": "0x8015",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 50,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "00800A1B00000000"
+      },
+      {
+        "row": 4,
+        "header": "0x8005",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "0000090000000000"
+      }
+    ]
+  },
+  {
+    "slot": 5,
+    "name": "RemoteOn",
+    "repeat": 1,
+    "chain_next": false,
+    "frame_type": 1,
+    "rows": [
+      {
+        "row": 1,
+        "header": "0x87d0",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 5000,
+        "dlc": 8,
+        "count": 2,
+        "can_id": "394",
+        "data": "FCFF0FFF001FF000"
+      },
+      {
+        "row": 2,
+        "header": "0x8014",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 50,
+        "dlc": 8,
+        "count": 0,
+        "can_id": "092",
+        "data": "0000600000000000"
+      },
+      {
+        "row": 3,
+        "header": "0x8015",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 50,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "00800A1B00000000"
+      },
+      {
+        "row": 4,
+        "header": "0x8005",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "0000090000000000"
+      }
+    ]
+  },
+  {
+    "slot": 6,
+    "name": "RemoteOff",
+    "repeat": 1,
+    "chain_next": false,
+    "frame_type": 1,
+    "rows": [
+      {
+        "row": 1,
+        "header": "0x8004",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "0000090000000000"
+      },
+      {
+        "row": 2,
+        "header": "0x8004",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 0,
+        "can_id": "000",
+        "data": "0000000000000000"
+      },
+      {
+        "row": 3,
+        "header": "0x8004",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 0,
+        "can_id": "000",
+        "data": "0000000000000000"
+      },
+      {
+        "row": 4,
+        "header": "0x8004",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 0,
+        "can_id": "000",
+        "data": "0000000000000000"
+      }
+    ]
+  },
+  {
+    "slot": 7,
+    "name": "гудок",
+    "repeat": 1,
+    "chain_next": false,
+    "frame_type": 1,
+    "rows": [
+      {
+        "row": 1,
+        "header": "0x807a",
+        "can_index": 2,
+        "can_label": 3,
+        "delay_ms": 300,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "701",
+        "data": "062F010303080055"
+      },
+      {
+        "row": 2,
+        "header": "0x8006",
+        "can_index": 2,
+        "can_label": 3,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "701",
+        "data": "062F010303000055"
+      },
+      {
+        "row": 3,
+        "header": "0x8005",
+        "can_index": 1,
+        "can_label": 2,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 1,
+        "can_id": "011",
+        "data": "0400000000000000"
+      },
+      {
+        "row": 4,
+        "header": "0x8004",
+        "can_index": 0,
+        "can_label": 1,
+        "delay_ms": 10,
+        "dlc": 8,
+        "count": 0,
+        "can_id": "000",
+        "data": "0000000000000000"
+      }
+    ]
+  }
+]

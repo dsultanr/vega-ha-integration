@@ -16,7 +16,7 @@ print(json.dumps(dict(entry_id='fixture-tracker', scenarios=scenarios, slots=slo
 `], {cwd: root, encoding: 'utf8'}));
 
 (async () => {
-  const browser = await chromium.launch({headless: true, args: ['--no-sandbox']});
+  const browser = await chromium.launch({headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE, args: ['--no-sandbox']});
   try {
     const page = await browser.newPage({viewport: {width: 1100, height: 900}});
     const errors = [];
@@ -42,6 +42,12 @@ print(json.dumps(dict(entry_id='fixture-tracker', scenarios=scenarios, slots=slo
     assert.match(await page.locator('#command-preview').innerText(), /1341=1; 1347=0; CAN-слот 4/);
     const doc = JSON.parse(await page.locator('#slot-json').inputValue());
     assert.equal(doc.scripts[0].slot, 4);
+    assert.equal(doc.scripts[0].format_version, 2);
+    assert.equal(doc.scripts[0].frames[0].delay_ms, 5000);
+    assert.equal(doc.scripts[0].frames[0].bus, 1);
+    assert.equal(doc.scripts[0].frames[0].count, 2);
+    assert.equal(doc.scripts[0].frames[1].count, 0);
+    assert.equal(doc.scripts[0].frames[2].bus, 2);
     doc.scenarios[0].actions.external_output_on_seconds = 2;
     const draft = JSON.stringify(doc, null, 2);
     await page.locator('#slot-json').fill(draft);

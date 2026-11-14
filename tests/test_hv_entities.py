@@ -15,6 +15,14 @@ class EntityTests(unittest.TestCase):
                                       data=data, config_entry=None, last_update_success=True)
         return VegaSensor(coordinator, key, *SENSOR_TYPES[key])
 
+    def test_climate_unknown_and_off_are_distinct(self):
+        for key in ('seat_heater_rear_right', 'climate_air_distribution'):
+            for data, available, value in (({}, False, None), ({key: None}, False, None),
+                                          ({key: 0}, True, 0), ({key: 3}, True, 3)):
+                entity = self.entity(key, data)
+                self.assertEqual(entity.available, available)
+                self.assertEqual(entity.native_value, value)
+
     def test_native_units_and_classes(self):
         for key, unit, device_class in (('hv_battery_voltage', 'V', 'voltage'),
                                         ('hv_battery_current', 'A', 'current'),
