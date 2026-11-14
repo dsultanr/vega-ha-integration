@@ -174,7 +174,7 @@ function climateSettings(script) {
     if (f.dlc !== 8 || !((f.bus === 1 && [0x394, 0x92, 0x93].includes(f.can_id)) ||
                         (f.bus === 2 && f.can_id === 0x11))) return null;
     if (f.can_id === 0x11 && (b[0] !== 0 || b.slice(4).some(Boolean) ||
-        !((b[2] === 0x0a && [0x44, 0x58, 0x80].includes(b[1])) ||
+        !((b[2] === 0x0a && (b[1] >= 68 && b[1] <= 128 && b[1] % 2 === 0)) ||
           (f.data.toLowerCase() === '0000090000000000') || f.data.toLowerCase() === '0000005b00000000'))) return null;
     if (f.can_id === 0x394) {
       const cooling = b[0] === 0x41 && b[1] === 0;
@@ -204,7 +204,7 @@ function climateSettings(script) {
         if (f.count > 0 && code) result[key] = code - 1;
       }
       // The remote preset is used only when no explicit HVAC temperature exists.
-      if (f.count > 0 && result.temperature === null && b[2] === 0x0a) result.temperature = {68:17, 88:22, 128:32}[b[1]];
+      if (f.count > 0 && result.temperature === null && b[2] === 0x0a) result.temperature = b[1] / 4;
     }
   }
   if (result.temperature === null || (result.fan !== null && result.fan > 8) ||
@@ -226,6 +226,7 @@ function compileClimateProgram(script, settings) {
   const front = value => value === null ? 0 : value + 1;
   const remote = climateBytes(script.frames.find(f => f.can_id === 0x11 && climateBytes(f)[2] === 0x0a));
   const retained = script.frames.filter(f => f.can_id === 0x11).reduce((bits, f) => bits | (climateBytes(f)[3] & 0xc0), 0);
+  remote[1] = temp * 4;
   remote[3] = retained | front(settings.driver) | (front(settings.passenger) << 3);
   const hvac = climateBytes(script.frames.filter(f => f.can_id === 0x394).at(-1));
   hvac[2] = (hvac[2] & 15) | ((settings.airflow || 0) << 4);
@@ -234,10 +235,12 @@ function compileClimateProgram(script, settings) {
   const rear = [(heat(settings.rear_left) << 5) | (heat(settings.rear_right) << 2), 0,
     heat(settings.wheel) << 5, 0, 0, 0, 0, 0];
   const frame = (delay_ms, bus, can_id, count, data) => ({delay_ms, bus, can_id, count, dlc: 8, data: climateHex(data)});
-  // Wake/preset first, final HVAC settings afterwards. Four records, one program.
+  // The first row is emitted immediately. Repeat activation after 5 seconds
+  // so a waking BCM also receives it, then reset the pulse and set final HVAC values.
+  // Four records, one program.
   const result = {slot: script.slot, format_version: 2, name: script.name,
     repeat: script.repeat, frame_type: 1, chain_next: false, frames: [
-      frame(5000, 2, 0x11, 1, remote), frame(50, 2, 0x11, 1, [0,0,9,0,0,0,0,0]),
+      frame(5000, 2, 0x11, 2, remote), frame(10000, 2, 0x11, 1, [0,0,9,0,0,0,0,0]),
       frame(1000, 1, 0x394, 2, hvac), frame(150, 1, 0x92, 3, rear)]};
   const {slot, ...spec} = result; validateScript(spec);
   return result;
@@ -664,6 +667,7 @@ class VegaCanEditor extends HTMLElement {
       </style>
       <section class="climate-profile" aria-label="Климатический профиль">
         <h3>Климатический профиль</h3>
+        <div class="hint">После удалённого запуска скорость вентилятора и обдув пока могут оставаться в AUTO. Температура и обогревы проверены отдельно.</div>
         <div class="hint">Настройки для следующего выполнения сценария. «Не менять» не задаёт отдельную команду для выбранного параметра; итоговое состояние зависит от штатного запуска климата.</div>
         ${scripts.length > 1 ? `<label>Программа<select id="climate-program">${scripts.map(s => `<option value="${s.slot}">${escapeHtml(s.name)}</option>`).join('')}</select></label>` : ''}
         <div class="climate-grid">${climateFields.map(([key, label]) => `<label for="climate-${key}">${label}<select id="climate-${key}">${climateOptions(key).map(([v, text]) => `<option value="${v}">${text}</option>`).join('')}</select></label>`).join('')}</div>

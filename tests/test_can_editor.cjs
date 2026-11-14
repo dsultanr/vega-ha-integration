@@ -337,8 +337,9 @@ test('climate form decodes the current program and stays local until save', asyn
   assert.equal(e.querySelector('#slot-advanced').open, false);
   chooseClimate(e, variedClimate);
   const doc = JSON.parse(e.querySelector('#slot-json').value);
-  assert.deepEqual(doc.frames.map(f => f.data), ['00800a1a00000000','0000090000000000','fcff4fff0c1f6800','4400400000000000']);
-  assert.deepEqual(doc.frames.map(f => f.count), [1,1,2,3]);
+  assert.deepEqual(doc.frames.map(f => f.data), ['005e0a1a00000000','0000090000000000','fcff4fff0c1f6800','4400400000000000']);
+  assert.deepEqual(doc.frames.map(f => f.count), [2,1,2,3]);
+  assert.deepEqual(doc.frames.map(f => f.delay_ms), [5000,10000,1000,150]);
   assert.equal(e.querySelector('#climate-temperature').value, '23.5');
   assert.equal(calls.length, 0);
   assert.equal(e._baselineRaw, preparedClimate.candidate_hex);
@@ -421,7 +422,9 @@ test('climate fan and airflow fields match independently captured OEM commands',
   }
   for (const [temperature, code] of [[17,'00'],[22,'50'],[22.5,'58'],[23.5,'68'],[31.5,'e8'],[32,'f0']]) {
     chooseClimate(e, {...variedClimate, temperature});
-    assert.equal(JSON.parse(e.querySelector('#slot-json').value).frames[2].data.slice(12,14), code);
+    const frames = JSON.parse(e.querySelector('#slot-json').value).frames;
+    assert.equal(frames[2].data.slice(12,14), code);
+    assert.equal(parseInt(frames[0].data.slice(2,4),16), temperature*4);
     assert.equal(e.querySelector('#climate-temperature').value, String(temperature));
   }
 });

@@ -83,7 +83,7 @@ print(json.dumps(dict(entry_id='fixture-tracker', scenarios=scenarios, slots=slo
     await page.locator('#climate-apply').click();
     const climateDraft = JSON.parse(await page.locator('#slot-json').inputValue());
     assert.deepEqual(climateDraft.scenarios, climateBefore.scenarios);
-    assert.deepEqual(climateDraft.scripts[0].frames.map(f => f.data), ['00800a0c00000000','0000090000000000','fcff2fff201f5000','0c00600000000000']);
+    assert.deepEqual(climateDraft.scripts[0].frames.map(f => f.data), ['00580a0c00000000','0000090000000000','fcff2fff201f5000','0c00600000000000']);
     assert.equal(await page.evaluate(() => calls.length), callCount);
     const roundtrip = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-B', '-c', `
 import importlib.util, json, sys
