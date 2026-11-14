@@ -39,7 +39,7 @@ print(json.dumps(dict(entry_id='fixture-tracker', scenarios=scenarios, slots=slo
     }, attrs);
     assert.equal(await page.locator('.command-row').count(), 9);
     await page.locator('.command-row').filter({has: page.locator('.slot-title', {hasText: /^Прогрев$/})}).getByRole('button').click();
-    assert.match(await page.locator('#command-preview').innerText(), /1341=1; 1347=0; CAN-слот 4/);
+    assert.match(await page.locator('#command-preview').textContent(), /1341=1; 1347=0; CAN-слот 4/);
     const doc = JSON.parse(await page.locator('#slot-json').inputValue());
     assert.equal(doc.scripts[0].slot, 4);
     assert.equal(doc.scripts[0].format_version, 2);
@@ -50,8 +50,9 @@ print(json.dumps(dict(entry_id='fixture-tracker', scenarios=scenarios, slots=slo
     assert.equal(doc.scripts[0].frames[2].bus, 2);
     doc.scenarios[0].actions.external_output_on_seconds = 2;
     const draft = JSON.stringify(doc, null, 2);
+    await page.locator('#command-advanced').evaluate(el => { el.open = true; });
     await page.locator('#slot-json').fill(draft);
-    assert.match(await page.locator('#command-preview').innerText(), /1341=1 на 2 с/);
+    assert.match(await page.locator('#command-preview').textContent(), /1341=1 на 2 с/);
     await page.evaluate(() => {
       editor._hass.states['sensor.fixture'].attributes.scenarios[3].raw = 'ff'.repeat(50);
       editor.hass = editor._hass;
@@ -69,6 +70,42 @@ print(json.dumps(dict(entry_id='fixture-tracker', scenarios=scenarios, slots=slo
     assert.equal(await page.evaluate(() => calls[1].service), 'write_commands');
     assert.equal(await page.evaluate(() => calls[1].service_data.entry_id), 'fixture-tracker');
     assert.equal(await page.evaluate(() => Object.keys(calls[1].service_data.expected).length), 33);
+    // Climate form edits an existing command locally, retaining launch conditions.
+    await page.locator('.command-row').filter({has: page.locator('.slot-title', {hasText: /^Прогрев$/})}).getByRole('button').click();
+    const climateBefore = JSON.parse(await page.locator('#slot-json').inputValue());
+    const callCount = await page.evaluate(() => calls.length);
+    for (const [key, value] of Object.entries({temperature:'22', fan:'8', airflow:'2', driver:'3', passenger:'0', rear_left:'keep', rear_right:'3', wheel:'3'})) {
+      await page.locator(`#climate-${key}`).selectOption(value);
+    }
+    await page.locator('#save-btn').click();
+    assert.match(await page.locator('#editor-error').innerText(), /Сначала примените/);
+    assert.equal(await page.evaluate(() => calls.length), callCount);
+    await page.locator('#climate-apply').click();
+    const climateDraft = JSON.parse(await page.locator('#slot-json').inputValue());
+    assert.deepEqual(climateDraft.scenarios, climateBefore.scenarios);
+    assert.deepEqual(climateDraft.scripts[0].frames.map(f => f.data), ['00800a0c00000000','0000090000000000','fcff2fff201f5000','0c00600000000000']);
+    assert.equal(await page.evaluate(() => calls.length), callCount);
+    const roundtrip = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-B', '-c', `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location('protocol', 'custom_components/vega/protocol.py')
+p = importlib.util.module_from_spec(spec); spec.loader.exec_module(p)
+doc = json.loads(sys.stdin.read()); doc.pop('slot')
+raw = p.build_can_script_from_dict(doc)
+print(json.dumps(p.decode_can_script(raw)))
+`], {cwd: root, input: JSON.stringify(climateDraft.scripts[0]), encoding:'utf8'}));
+    assert.deepEqual(roundtrip.frames.map(({description, ...frame}) => frame), climateDraft.scripts[0].frames);
+    assert.match(await page.locator('#command-preview').textContent(), /22 °C/);
+    if (process.env.CLIMATE_SCREENSHOT) await page.screenshot({path:process.env.CLIMATE_SCREENSHOT});
+    await page.setViewportSize({width:390,height:844});
+    const climateBox = await page.locator('.modal-box').boundingBox();
+    assert.ok(climateBox.x >= 0 && climateBox.x + climateBox.width <= 390 && climateBox.height <= 844);
+    assert.equal(await page.locator('#climate-form select').count(), 8);
+    await page.locator('#climate-wheel').scrollIntoViewIfNeeded();
+    if (process.env.CLIMATE_MOBILE_SCREENSHOT) await page.screenshot({path:process.env.CLIMATE_MOBILE_SCREENSHOT});
+    await page.locator('#save-btn').click();
+    await page.locator('#slot-json').waitFor({state:'detached'});
+    assert.deepEqual((await page.evaluate(() => calls.at(-1))).service_data.document, climateDraft);
+    await page.setViewportSize({width:1100,height:900});
     await page.locator('#tab-scenarios').click();
     assert.equal(await page.locator('.command-row').count(), 25);
     await page.locator('#tab-slots').click();
@@ -85,6 +122,6 @@ print(json.dumps(dict(entry_id='fixture-tracker', scenarios=scenarios, slots=slo
     if (process.env.SCREENSHOT) await page.screenshot({path: process.env.SCREENSHOT});
     await page.locator('#close-btn').click();
     assert.deepEqual(errors, []);
-    console.log('PASS Chromium: command/scenario/slot views, draft, service payload, failure, success, mobile modal');
+    console.log('PASS Chromium: command/scenario/slot views, draft, service payload, failure, success, climate controls, wire roundtrip, mobile modal');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1,5 +1,5 @@
 {
-  "status": "prepared_not_installed",
+  "status": "historical_candidate_not_installed",
   "setting": 5502,
   "slot": 4,
   "name": "прогрев",
@@ -94,5 +94,6 @@
         "data": "0000090000000000"
       }
     ]
-  }
+  },
+  "editor_note": "Earlier manual candidate retained as a regression fixture. The climate form generates a new four-row draft in remote/neutral/HVAC/rear-heat order from the freshly read program; native execution and sleep/wake remain unverified."
 }

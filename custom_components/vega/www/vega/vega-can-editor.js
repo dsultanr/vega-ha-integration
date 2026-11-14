@@ -68,6 +68,13 @@ function explainCanFrame(bus, canId, dataHex) {
 }
 
 function explainCanScript(script) {
+  const climate = climateSettings(script);
+  if (climate) {
+    const parts = [climate.temperature === 17 ? 'LO' : climate.temperature === 32 ? 'HI' : `${climate.temperature} °C`];
+    if (climate.fan !== null) parts.push(`вентилятор ${climate.fan}`);
+    if (climate.airflow !== null) parts.push(climateAirflows[climate.airflow].toLowerCase());
+    return `Климат: ${parts.join(', ')}`;
+  }
   const frames = script.frames || [];
   if (!frames.length) return "Пустой скрипт";
   if (frames.some(f => Number(f.can_id) === 0x394 && (f.data || "").toLowerCase() === "fcff2fff201f5000")) return "Запрос климата 22°C, обдув в лицо и ноги, вентилятор максимум; команды обогрева";
@@ -140,6 +147,108 @@ function scriptDocument(s) {
     frame_type: s.frame_type, chain_next: s.chain_next,
     frames: (s.frames || []).map(f => ({delay_ms: f.delay_ms, can_id: f.can_id, bus: f.bus,
       count: f.count, dlc: f.dlc, data: f.data}))};
+}
+
+// F515 OEM command fields, captured with all heat levels, fan speeds and four
+// airflow modes. This creates a draft; only the existing guarded save writes it.
+const climateFields = [
+  ['temperature', 'Температура'], ['fan', 'Вентилятор'], ['airflow', 'Обдув'],
+  ['driver', 'Сиденье водителя'], ['passenger', 'Переднее пассажирское сиденье'],
+  ['rear_left', 'Заднее левое сиденье'], ['rear_right', 'Заднее правое сиденье'],
+  ['wheel', 'Обогрев руля'],
+];
+const climateAirflows = {1: 'В лицо', 2: 'В лицо и ноги', 3: 'В ноги', 4: 'В ноги и на лобовое стекло'};
+function climateBytes(frame) { return frame.data.match(/../g).map(v => parseInt(v, 16)); }
+function climateHex(bytes) { return bytes.map(v => v.toString(16).padStart(2, '0')).join(''); }
+function climateHeat(code) { return code === 0 ? null : code === 4 ? 0 : code <= 3 ? code : undefined; }
+function climateSettings(script) {
+  try { const {slot, ...spec} = scriptDocument(script); validateScript(spec); } catch (_) { return null; }
+  if (script.frame_type !== 1 || script.chain_next || !script.frames.some(f => f.bus === 1 && f.can_id === 0x394 && f.count > 0) ||
+      !script.frames.some(f => f.bus === 2 && f.can_id === 0x11 && climateBytes(f)[2] === 0x0a && f.count > 0)) return null;
+  if ([0x394, 0x92, 0x93].some(id => script.frames.filter(f => f.can_id === id).length > 1) ||
+      script.frames.filter(f => f.can_id === 0x11 && climateBytes(f)[2] === 0x0a).length > 1) return null;
+  const result = Object.fromEntries(climateFields.map(([key]) => [key, null]));
+  for (const f of script.frames) {
+    const b = climateBytes(f);
+    // Restrict this form to known climate programs; other commands retain JSON editing.
+    if (f.dlc !== 8 || !((f.bus === 1 && [0x394, 0x92, 0x93].includes(f.can_id)) ||
+                        (f.bus === 2 && f.can_id === 0x11))) return null;
+    if (f.can_id === 0x11 && (b[0] !== 0 || b.slice(4).some(Boolean) ||
+        !((b[2] === 0x0a && [0x44, 0x58, 0x80].includes(b[1])) ||
+          (f.data.toLowerCase() === '0000090000000000') || f.data.toLowerCase() === '0000005b00000000'))) return null;
+    if (f.can_id === 0x394) {
+      const cooling = b[0] === 0x41 && b[1] === 0;
+      if (!(cooling || ([0xfc, 0x7c].includes(b[0]) && b[1] === 0xff)) ||
+          (b[2] & 15) !== (cooling ? 0 : 15) || b[3] !== (cooling ? 0 : 0xff) ||
+          b[5] !== (cooling ? 0 : 0x1f) || (b[4] & 0xc3) || (b[6] & 7) || b[7]) return null;
+      if (f.count === 0) continue;
+      const temp = b[6] >> 3, fan = (b[4] >> 2) & 15, airflow = b[2] >> 4;
+      if (temp !== 31) result.temperature = 17 + temp / 2;
+      if (fan) result.fan = fan;
+      if (airflow) result.airflow = airflow;
+    } else if (f.can_id === 0x92) {
+      if ((b[0] & 3) || b[1] || (b[2] & 31) || b.slice(3).some(Boolean)) return null;
+      for (const [key, code] of [['rear_left', b[0] >> 5], ['rear_right', (b[0] >> 2) & 7], ['wheel', b[2] >> 5]]) {
+        const level = climateHeat(code); if (level === undefined) return null;
+        if (f.count > 0 && level !== null) result[key] = level;
+      }
+    } else if (f.can_id === 0x93) {
+      if (f.data.slice(2).toLowerCase() !== 'c3ccc0000c0000' || (b[0] & 0xc0)) return null;
+      for (const [key, code] of [['driver', b[0] & 7], ['passenger', (b[0] >> 3) & 7]]) {
+        const level = climateHeat(code); if (level === undefined) return null;
+        if (f.count > 0 && level !== null) result[key] = level;
+      }
+    } else if (b[2] !== 9) {
+      for (const [key, code] of [['driver', b[3] & 7], ['passenger', (b[3] >> 3) & 7]]) {
+        if (code > 4) return null;
+        if (f.count > 0 && code) result[key] = code - 1;
+      }
+      // The remote preset is used only when no explicit HVAC temperature exists.
+      if (f.count > 0 && result.temperature === null && b[2] === 0x0a) result.temperature = {68:17, 88:22, 128:32}[b[1]];
+    }
+  }
+  if (result.temperature === null || (result.fan !== null && result.fan > 8) ||
+      (result.airflow !== null && !climateAirflows[result.airflow])) return null;
+  return result;
+}
+function compileClimateProgram(script, settings) {
+  if (!climateSettings(script)) throw new Error('CAN-программа не поддерживает климатическую форму');
+  if (!settings || Object.keys(settings).length !== climateFields.length ||
+      Object.keys(settings).some(k => !climateFields.some(([key]) => key === k))) throw new Error('Нужны все климатические настройки');
+  const temp = settings.temperature;
+  if (!Number.isFinite(temp) || temp < 17 || temp > 32 || !Number.isInteger(temp * 2)) throw new Error('Температура: LO, 17.5–31.5 °C с шагом 0.5 или HI');
+  for (const [key] of climateFields.slice(1)) {
+    const value = settings[key], max = key === 'fan' ? 8 : key === 'airflow' ? 4 : 3;
+    const min = ['fan', 'airflow'].includes(key) ? 1 : 0;
+    if (value !== null && (!Number.isInteger(value) || value < min || value > max)) throw new Error(`Недопустимое значение ${key}`);
+  }
+  const heat = value => value === null ? 0 : value === 0 ? 4 : value;
+  const front = value => value === null ? 0 : value + 1;
+  const remote = climateBytes(script.frames.find(f => f.can_id === 0x11 && climateBytes(f)[2] === 0x0a));
+  const retained = script.frames.filter(f => f.can_id === 0x11).reduce((bits, f) => bits | (climateBytes(f)[3] & 0xc0), 0);
+  remote[3] = retained | front(settings.driver) | (front(settings.passenger) << 3);
+  const hvac = climateBytes(script.frames.filter(f => f.can_id === 0x394).at(-1));
+  hvac[2] = (hvac[2] & 15) | ((settings.airflow || 0) << 4);
+  hvac[4] = (hvac[4] & 0xc3) | ((settings.fan || 0) << 2);
+  hvac[6] = (hvac[6] & 7) | (((temp - 17) * 2) << 3);
+  const rear = [(heat(settings.rear_left) << 5) | (heat(settings.rear_right) << 2), 0,
+    heat(settings.wheel) << 5, 0, 0, 0, 0, 0];
+  const frame = (delay_ms, bus, can_id, count, data) => ({delay_ms, bus, can_id, count, dlc: 8, data: climateHex(data)});
+  // Wake/preset first, final HVAC settings afterwards. Four records, one program.
+  const result = {slot: script.slot, format_version: 2, name: script.name,
+    repeat: script.repeat, frame_type: 1, chain_next: false, frames: [
+      frame(5000, 2, 0x11, 1, remote), frame(50, 2, 0x11, 1, [0,0,9,0,0,0,0,0]),
+      frame(1000, 1, 0x394, 2, hvac), frame(150, 1, 0x92, 3, rear)]};
+  const {slot, ...spec} = result; validateScript(spec);
+  return result;
+}
+function climateOptions(key) {
+  if (key === 'temperature') return Array.from({length:31}, (_, i) => {
+    const v = 17 + i / 2; return [v, i === 0 ? 'LO — минимум' : i === 30 ? 'HI — максимум' : `${v} °C`];
+  });
+  if (key === 'fan') return [['keep','Не менять'], ...Array.from({length:8}, (_, i) => [i+1, `${i+1}${i===7 ? ' — максимум' : ''}`])];
+  if (key === 'airflow') return [['keep','Не менять'], ...Object.entries(climateAirflows)];
+  return [['keep','Не менять'], [0,'Выключить'], [1,'1 — слабый'], [2,'2 — средний'], [3,'3 — максимум']];
 }
 
 function validateCommandDocument(doc) {
@@ -484,11 +593,13 @@ class VegaCanEditor extends HTMLElement {
       <div class="modal-backdrop" id="backdrop"><div class="modal-box" role="dialog" aria-label="Редактор команды">
         <div class="modal-header"><span class="modal-title">${escapeHtml(title)}</span><button class="modal-close" id="close-x">&times;</button></div>
         <div class="modal-body">
+          <div id="climate-form"></div>
           <div class="preview" id="command-preview"></div>
+          <details id="command-advanced"><summary>Условия и CAN-кадры (JSON)</summary>
           <div class="hint">Сценарии задают условия и действия с выходами; scripts содержит связанные CAN-кадры. Порядок действий сценария не задаётся порядком полей JSON.</div>
           <details><summary>Поля редактора</summary><div class="hint">conditions: два условия или null. comparison: equal — стал равен, greater — стал больше, changed — любое изменение. match: any — ИЛИ, all — И. external_output_on/off: номер внешнего выхода 1–15 (ID = 1340 + номер), 0 — действие не выбрано. *_seconds: время 0–255 с, как в конфигураторе. can_script: слот 0–7 или null. Не удаляйте сценарий из списка: для отключения задайте оба условия null.</div></details>
           <button class="btn sec" id="add-scenario" ${action ? "" : "hidden"}>Добавить сценарий для этой команды</button>
-          <textarea class="json-area" id="slot-json" aria-label="JSON команды"></textarea>
+          <textarea class="json-area" id="slot-json" aria-label="JSON команды"></textarea></details>
           <div class="error" id="editor-error" role="alert"></div>
           <div class="hint">Запись нескольких настроек проверяется по каждой. При ошибке оставшиеся записи останавливаются; результат показан в сообщении.</div>
         </div>
@@ -496,6 +607,8 @@ class VegaCanEditor extends HTMLElement {
       </div></div>`;
     const textarea = this.querySelector("#slot-json");
     textarea.value = JSON.stringify(doc, null, 2);
+    this._climateSlot = null;
+    this._renderClimateForm(doc, true);
     const preview = () => {
       try {
         const current = JSON.parse(textarea.value);
@@ -529,6 +642,95 @@ class VegaCanEditor extends HTMLElement {
     });
   }
 
+  _renderClimateForm(doc, bundle) {
+    this._climateDirty = false;
+    const root = this.querySelector('#climate-form');
+    if (!root) return;
+    const scripts = (bundle ? doc.scripts : [{...doc, slot: this._activeSlot}]).filter(s => climateSettings(s));
+    const advanced = this.querySelector(bundle ? '#command-advanced' : '#slot-advanced');
+    if (advanced) advanced.open = scripts.length === 0;
+    if (!scripts.length) { root.innerHTML = ''; this._climateSlot = null; return; }
+    const script = scripts.find(s => s.slot === this._climateSlot) || scripts[0];
+    this._climateSlot = script.slot;
+    const settings = climateSettings(script);
+    root.innerHTML = `
+      <style>
+        .climate-profile{border:1px solid var(--divider-color,#454545);border-radius:12px;padding:16px;margin-bottom:16px}
+        .climate-profile h3{margin:0 0 8px;font-size:18px}.climate-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+        .climate-grid label{display:grid;gap:6px;min-width:0;font-size:14px}
+        .climate-profile select{width:100%;min-height:44px;border:1px solid var(--divider-color,#555);border-radius:8px;padding:8px;background:var(--card-background-color,#252525);color:var(--primary-text-color,#eee);font:inherit}
+        .climate-actions{display:flex;gap:8px;flex-wrap:wrap}.climate-status{margin-top:10px;font-size:13px;color:var(--secondary-text-color,#bbb)}
+        @media(max-width:500px){.climate-grid{grid-template-columns:1fr}.climate-profile{padding:12px}}
+      </style>
+      <section class="climate-profile" aria-label="Климатический профиль">
+        <h3>Климатический профиль</h3>
+        <div class="hint">Настройки для следующего выполнения сценария. «Не менять» не задаёт отдельную команду для выбранного параметра; итоговое состояние зависит от штатного запуска климата.</div>
+        ${scripts.length > 1 ? `<label>Программа<select id="climate-program">${scripts.map(s => `<option value="${s.slot}">${escapeHtml(s.name)}</option>`).join('')}</select></label>` : ''}
+        <div class="climate-grid">${climateFields.map(([key, label]) => `<label for="climate-${key}">${label}<select id="climate-${key}">${climateOptions(key).map(([v, text]) => `<option value="${v}">${text}</option>`).join('')}</select></label>`).join('')}</div>
+        <div class="climate-actions"><button class="btn" id="climate-apply" ${this._editable ? '' : 'disabled'}>Применить к черновику</button><button class="btn sec" id="climate-refresh">Загрузить из черновика</button></div>
+        <div class="climate-status" id="climate-status" aria-live="polite"></div>
+      </section>`;
+    for (const [key] of climateFields) this.querySelector(`#climate-${key}`).value = settings[key] === null ? 'keep' : String(settings[key]);
+    for (const [key] of climateFields) this.querySelector(`#climate-${key}`).addEventListener('change', () => {
+      this._climateDirty = true;
+      this.querySelector('#climate-status').textContent = 'Есть изменения: нажмите «Применить к черновику» перед сохранением.';
+    });
+    const readDraft = () => JSON.parse(this.querySelector('#slot-json').value);
+    const select = this.querySelector('#climate-program');
+    if (select && scripts.length > 1) {
+      select.value = String(script.slot);
+      select.addEventListener('change', () => {
+        if (this._saving) return;
+        if (this._climateDirty) {
+          select.value = String(this._climateSlot);
+          this.querySelector('#editor-error').textContent = 'Примените изменения к черновику перед выбором другой программы.';
+          return;
+        }
+        this._climateSlot = Number(select.value);
+        try { this._renderClimateForm(readDraft(), bundle); } catch (err) { this.querySelector('#editor-error').textContent = err.message; }
+      });
+    }
+    this.querySelector('#climate-refresh').addEventListener('click', () => {
+      if (this._saving) return;
+      try { this._renderClimateForm(readDraft(), bundle); } catch (err) { this.querySelector('#editor-error').textContent = err.message; }
+    });
+    this.querySelector('#climate-apply').addEventListener('click', () => {
+      if (this._saving || !this._editable) return;
+      try {
+        const current = readDraft();
+        if (bundle) validateCommandDocument(current); else validateScript(current);
+        const base = bundle ? current.scripts.find(s => s.slot === this._climateSlot) : {...current, slot: this._activeSlot};
+        if (!base) throw new Error('Программа удалена из черновика');
+        const values = Object.fromEntries(climateFields.map(([key]) => {
+          const value = this.querySelector(`#climate-${key}`).value;
+          return [key, value === 'keep' ? null : value === '' ? NaN : Number(value)];
+        }));
+        const updated = compileClimateProgram(base, values);
+        let draft;
+        if (bundle) {
+          current.scripts = current.scripts.map(s => s.slot === updated.slot ? updated : s);
+          draft = current;
+          this._renderCommandPreview(draft);
+        } else {
+          const {slot, ...spec} = updated; draft = spec;
+          this._renderDecodedSections(draft);
+        }
+        this.querySelector('#slot-json').value = JSON.stringify(draft, null, 2);
+        this.querySelector('#editor-error').textContent = '';
+        this._renderClimateForm(draft, bundle);
+        this.querySelector('#climate-status').textContent = 'Профиль добавлен в черновик. Нажмите кнопку сохранения, чтобы записать программу.';
+      } catch (err) { this.querySelector('#editor-error').textContent = err.message; }
+    });
+    this._climateBusy(this._saving);
+  }
+
+  _climateBusy(busy) {
+    for (const id of ['climate-apply', 'climate-refresh', 'climate-program', ...climateFields.map(([key]) => `climate-${key}`)]) {
+      const element = this.querySelector(`#${id}`);
+      if (element) element.disabled = busy || !this._editable;
+    }
+  }
+
   _renderCommandPreview(doc) {
     const lines = [];
     if (this._editorBinding) {
@@ -545,6 +747,7 @@ class VegaCanEditor extends HTMLElement {
     }
     for (const s of doc.scripts) {
       lines.push(`CAN-слот ${s.slot} «${s.name}»: ${s.frames.length} кадров, повтор ${s.repeat}, следующий слот: ${s.chain_next ? "да" : "нет"}.`);
+      lines.push(explainCanScript(s));
       const others = this._bundleContext.filter(c => c.slot === s.slot && !doc.scenarios.some(d => d.index === c.index));
       if (others.length) lines.push(`Этот CAN-слот также используется сценариями: ${others.map(s => s.index).join(", ")}. Изменение кадров повлияет и на них.`);
     }
@@ -553,6 +756,7 @@ class VegaCanEditor extends HTMLElement {
   }
 
   async _saveCommand(text) {
+    if (this._climateDirty) { this.querySelector('#editor-error').textContent = 'Сначала примените климатические настройки к черновику.'; return; }
     if (this._saving || !this._editable) return;
     let doc;
     try {
@@ -563,6 +767,7 @@ class VegaCanEditor extends HTMLElement {
     } catch (e) { this.querySelector("#editor-error").textContent = e.message; return; }
     const textarea = this.querySelector("#slot-json"), button = this.querySelector("#save-btn");
     this._saving = true;
+    this._climateBusy(true);
     textarea.disabled = button.disabled = true;
     button.textContent = "Сохраняю и проверяю…";
     this.querySelector("#editor-error").textContent = "";
@@ -575,6 +780,7 @@ class VegaCanEditor extends HTMLElement {
     } catch (e) { this.querySelector("#editor-error").textContent = `Ошибка сохранения: ${e.message || e}`; }
     finally {
       this._saving = false;
+      this._climateBusy(false);
       textarea.disabled = false;
       button.disabled = !this._editable;
       button.textContent = "Сохранить команду и проверить";
@@ -642,7 +848,7 @@ class VegaCanEditor extends HTMLElement {
     const framesEl = this.querySelector("#frames-target");
     if (!summaryEl || !framesEl) return;
 
-    summaryEl.textContent = `🎯 ${s.summary || explainCanScript(s)}`;
+    summaryEl.textContent = `🎯 ${climateSettings(s) ? explainCanScript(s) : (s.summary || explainCanScript(s))}`;
 
     const frames = s.frames || [];
     if (!frames.length) {
@@ -682,6 +888,8 @@ class VegaCanEditor extends HTMLElement {
 
     body.innerHTML = `
       <div class="hint">${escapeHtml(this._bindingText(s.slot))}</div>
+      <div id="climate-form"></div>
+      <details id="slot-advanced"><summary>CAN-кадры (JSON)</summary>
       <div class="section-title">Расшифровка кадров</div>
       <div class="summary-box" id="summary-target"></div>
 
@@ -691,15 +899,18 @@ class VegaCanEditor extends HTMLElement {
       <div class="section-title" style="margin-top:8px;">Редактор (JSON)</div>
       <div class="hint">До 4 кадров. bus — CAN1–CAN3; delay_ms — 0–10230 мс, шаг 10; count — число отправок; dlc — 0–8. data хранит 8 байт (16 HEX-символов), передаётся dlc байт. repeat — повтор всей программы; chain_next — переход к следующему слоту. Запись проверяется чтением и не запускает скрипт.</div>
       <div class="hint">${this._editable ? "" : "Перечитайте слоты. Если запись остаётся недоступной, формат этого слота пока не поддерживается редактором."}</div>
-      <textarea class="json-area" id="slot-json"></textarea>
+      <textarea class="json-area" id="slot-json"></textarea></details>
       <div class="error" id="editor-error" role="alert"></div>
     `;
 
     this.querySelector("#slot-json").value = JSON.stringify(jsonSpec, null, 2);
     this._renderDecodedSections(s);
+    this._climateSlot = null;
+    this._renderClimateForm({...jsonSpec, slot: s.slot}, false);
   }
 
   async _save(slot, text) {
+    if (this._climateDirty) { this.querySelector('#editor-error').textContent = 'Сначала примените климатические настройки к черновику.'; return; }
     if (this._saving || !this._editable) return;
     let script;
     try {
@@ -710,6 +921,7 @@ class VegaCanEditor extends HTMLElement {
       return;
     }
     this._saving = true;
+    this._climateBusy(true);
     const button = this.querySelector("#save-btn");
     const textarea = this.querySelector("#slot-json");
     textarea.disabled = true;
@@ -727,6 +939,7 @@ class VegaCanEditor extends HTMLElement {
       this.querySelector("#editor-error").textContent = `Ошибка записи: ${e.message || e}`;
     } finally {
       this._saving = false;
+      this._climateBusy(false);
       textarea.disabled = false;
       button.disabled = !this._editable;
       button.textContent = "Записать и проверить";

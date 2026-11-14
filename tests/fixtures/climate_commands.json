@@ -1,0 +1,130 @@
+{
+  "source": "OEM HVAC controls, Vega CAN capture, 2026-11-14; raw replay is separate from native saved-program execution",
+  "heat_commands": {
+    "driver": {
+      "3": [
+        "03c3ccc0000c0000"
+      ],
+      "2": [
+        "02c3ccc0000c0000"
+      ],
+      "1": [
+        "01c3ccc0000c0000"
+      ],
+      "0": [
+        "04c3ccc0000c0000"
+      ]
+    },
+    "passenger": {
+      "3": [
+        "18c3ccc0000c0000"
+      ],
+      "2": [
+        "10c3ccc0000c0000"
+      ],
+      "1": [
+        "08c3ccc0000c0000"
+      ],
+      "0": [
+        "20c3ccc0000c0000"
+      ]
+    },
+    "rear_left": {
+      "3": [
+        "6000000000000000"
+      ],
+      "2": [
+        "4000000000000000"
+      ],
+      "1": [
+        "2000000000000000"
+      ],
+      "0": [
+        "8000000000000000"
+      ]
+    },
+    "rear_right": {
+      "3": [
+        "0c00000000000000"
+      ],
+      "2": [
+        "0800000000000000"
+      ],
+      "1": [
+        "0400000000000000"
+      ],
+      "0": [
+        "1000000000000000"
+      ]
+    },
+    "wheel": {
+      "3": [
+        "0000600000000000"
+      ],
+      "2": [
+        "0000400000000000"
+      ],
+      "1": [
+        "0000200000000000"
+      ],
+      "0": [
+        "0000800000000000"
+      ]
+    }
+  },
+  "airflow_commands": {
+    "face": [
+      "fcff1fff001ff800"
+    ],
+    "face_feet": [
+      "fcff2fff001ff800"
+    ],
+    "feet": [
+      "fcff3fff001ff800"
+    ],
+    "feet_windshield": [
+      "fcff4fff001ff800"
+    ]
+  },
+  "fan_commands": {
+    "fan1": [
+      "fcff0fff041ff800"
+    ],
+    "fan2": [
+      "fcff0fff081ff800"
+    ],
+    "fan3": [
+      "fcff0fff0c1ff800"
+    ],
+    "fan4": [
+      "fcff0fff101ff800"
+    ],
+    "fan5": [
+      "fcff0fff141ff800"
+    ],
+    "fan6": [
+      "fcff0fff181ff800"
+    ],
+    "fan7": [],
+    "fan8": [
+      "fcff0fff201ff800"
+    ]
+  },
+  "front_011": [
+    {
+      "data": "005e0a1a00000000",
+      "driver": 1,
+      "passenger": 2
+    },
+    {
+      "data": "00480a1300000000",
+      "driver": 2,
+      "passenger": 1
+    },
+    {
+      "data": "00580a0900000000",
+      "driver": 0,
+      "passenger": 0
+    }
+  ]
+}
