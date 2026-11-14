@@ -41,10 +41,12 @@ class NativeCodecTests(unittest.TestCase):
         profile = json.loads((Path(__file__).parents[1] / 'tools/preheat_profile.json').read_text())
         raw = protocol.build_can_script_from_dict(profile['script'])
         self.assertEqual(raw.hex(), profile['candidate_hex'])
-        self.assertEqual(raw[24:32].hex(), 'fcff2fff201f5000')
-        self.assertEqual(struct.unpack_from('<H', raw, 32)[0], 0x803c)
-        self.assertEqual(raw[38], 3)  # 092 count, not bus
-        self.assertEqual(raw[53], 1)  # CAN2 011 count
+        self.assertEqual(raw[24:32].hex(), '00800a0c00000000')
+        self.assertEqual(struct.unpack_from('<H', raw, 32)[0], 0x8015)
+        self.assertEqual(raw[38], 1)  # CAN2 neutral count
+        self.assertEqual(raw[53], 2)  # CAN1 HVAC count
+        self.assertEqual(raw[68], 3)  # CAN1 rear/wheel count
+        self.assertEqual(raw[54:62].hex(), 'fcff2fff201f5000')
 
     def test_explicit_bounds_extended_chain_and_short_dlc_roundtrip(self):
         spec = document(4)

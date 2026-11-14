@@ -337,7 +337,7 @@ test('climate form decodes the current program and stays local until save', asyn
   assert.equal(e.querySelector('#slot-advanced').open, false);
   chooseClimate(e, variedClimate);
   const doc = JSON.parse(e.querySelector('#slot-json').value);
-  assert.deepEqual(doc.frames.map(f => f.data), ['00580a1a00000000','0000090000000000','fcff4fff0c1f6800','4400400000000000']);
+  assert.deepEqual(doc.frames.map(f => f.data), ['00800a1a00000000','0000090000000000','fcff4fff0c1f6800','4400400000000000']);
   assert.deepEqual(doc.frames.map(f => f.count), [1,1,2,3]);
   assert.equal(e.querySelector('#climate-temperature').value, '23.5');
   assert.equal(calls.length, 0);
@@ -428,7 +428,7 @@ test('climate fan and airflow fields match independently captured OEM commands',
 
 test('climate recognition rejects chains, inactive activation frames and unknown inactive fields', () => {
   for (const mutate of [d => {d.chain_next=true;}, d => {d.frames[0].count=0;},
-      d => {d.frames[2].count=0;}, d => {d.frames[1].count=0; d.frames[1].data='0001000000000000';}]) {
+      d => {d.frames[2].count=0;}, d => {d.frames[3].count=0; d.frames[3].data='0001000000000000';}]) {
     const {e,data} = climateEditor(); mutate(data); e._openModal(data);
     assert.equal(e.querySelector('#climate-form').innerHTML, '');
     assert.equal(e.querySelector('#slot-advanced').open, true);
