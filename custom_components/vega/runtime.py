@@ -12,6 +12,7 @@ from datetime import datetime
 import json
 import logging
 import os
+import re
 import secrets
 import struct
 import time
@@ -20,7 +21,7 @@ from typing import Any, Callable
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from . import combine, protocol, hv_profile, sensor_pull
+from . import climate_profile, combine, protocol, hv_profile, sensor_pull
 from .raw_capture import RawCapture
 from .const import DEFAULT_IMEI, DOWNLINK_EVENT, ONLINE_TIMEOUT, SENSOR_KEY_MAP
 from .hv_battery import HvBatteryTelemetry, INPUTS as HV_INPUTS
@@ -404,6 +405,9 @@ class VegaRuntime:
         self._hv_expiry: asyncio.TimerHandle | None = None
         self._hv_plan: dict | None = None
         self.hv_setup: dict = {"phase": "idle", "message": "Настройки ВВБ ещё не проверены"}
+        # Climate form gate: unlocked only after the CAN matrix check passes.
+        self.climate_profile: dict = {"verified": False, "verified_on": climate_profile.VERIFIED_ON}
+        self.climate_check: dict = {"phase": "idle", "message": ""}
         self._position: dict[str, Any] = {}  # latitude/longitude/... from Wialon
         self._last_remote_state: Any = None
         self._inject_session: InjectionSession | None = None  # active proxy injection
@@ -1326,6 +1330,80 @@ class VegaRuntime:
                                 written=confirmed, uncertain=attempted)
                 raise
 
+    # --- climate form gate: tested vehicle profile ---------------------------
+    def _climate_profile_path(self) -> str:
+        return self.hass.config.path("vega", f"climate_profile_{self.imei}.json")
+
+    def _load_climate_profile(self) -> None:
+        state = {"verified": False, "verified_on": climate_profile.VERIFIED_ON}
+        try:
+            with open(self._climate_profile_path(), encoding="utf-8") as stream:
+                saved = json.load(stream)
+            if saved.get("profile") == climate_profile.PROFILE and saved.get("imei") == self.imei:
+                state.update(verified=True, profile=saved["profile"],
+                             profile_name=climate_profile.PROFILE_NAME,
+                             checked_at=saved.get("checked_at"))
+        except (OSError, ValueError, AttributeError):
+            pass
+        self.climate_profile = state
+
+    def _climate_status(self, phase: str, message: str, **extra) -> None:
+        self.climate_check = {"phase": phase, "message": message, **extra}
+        self._publish()
+
+    async def async_check_climate_profile(self, profile: str) -> dict:
+        """Read all CAN decoders and unlock the climate form only on a match.
+
+        Read-only for the tracker. A failed check also locks a form that an
+        earlier check had unlocked.
+        """
+        async with self._scripts_lock:
+            self._climate_status("reading", "Проверяю совместимость автомобиля…")
+            path = self._climate_profile_path()
+            try:
+                session = self._hv_session()
+                imei = self.imei
+                snapshot = {}
+                reads = climate_profile.FINGERPRINT_READS
+                for count, (setting, sub, size) in enumerate(reads, 1):
+                    if session is not self._hv_session():
+                        raise CommandError("Соединение трекера изменилось; повторите проверку")
+                    snapshot[f"{setting}/{sub}"] = await self._read_setting(session, setting, sub, size)
+                    if count % 8 == 0 or count == len(reads):
+                        self._climate_status("reading", "Читаю настройки трекера…",
+                                             progress=count, total=len(reads))
+                result = climate_profile.verify_vehicle(snapshot, profile)
+                if imei != self.imei:
+                    raise CommandError("IMEI изменился; повторите проверку")
+                record = {"profile": result["profile"], "imei": imei,
+                          "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+
+                def write():
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    with open(path + ".tmp", "w", encoding="utf-8") as stream:
+                        json.dump(record, stream)
+                    os.replace(path + ".tmp", path)
+
+                await self.hass.async_add_executor_job(write)
+                self._load_climate_profile()
+                self._climate_status("verified", "Профиль подтверждён. Форма климата доступна")
+                return {"verified": True, **self.climate_profile}
+            except (ValueError, CommandError, OSError, asyncio.TimeoutError) as err:
+                def lock():
+                    if os.path.exists(path):
+                        os.replace(path, path + ".rejected")
+
+                try:
+                    await self.hass.async_add_executor_job(lock)
+                except OSError:
+                    pass
+                self.climate_profile = {"verified": False, "verified_on": climate_profile.VERIFIED_ON}
+                self._climate_status("error", str(err))
+                raise CommandError(str(err)) from err
+            except asyncio.CancelledError:
+                self._climate_status("error", "Проверка прервана; повторите её")
+                raise
+
     # --- CAN scripts (Setting 5502 slots): read / view / write ---------------
 
     def slot_name(self, slot: int) -> str | None:
@@ -1362,6 +1440,7 @@ class VegaRuntime:
         self._slot_names = {}
         self._scenarios = []
         self._scenario_read_at = None
+        self._load_climate_profile()
         try:
             path = self._scripts_path()
             if os.path.exists(path):
@@ -1688,6 +1767,199 @@ class VegaRuntime:
                 done = ", ".join(confirmed) or "нет"
                 pending = f" Возможна неподтверждённая запись {attempted}." if attempted else ""
                 raise CommandError(f"{err}. Подтверждённые записи: {done}.{pending} Перечитайте настройки; черновик сохранён в редакторе") from err
+            except asyncio.CancelledError:
+                if attempted:
+                    self._store_config_record(attempted, None)
+                self._scenario_read_at = None
+                raise
+            finally:
+                await self._persist_scripts()
+                await self._persist_scenarios()
+                self._publish()
+
+    # --- full command snapshots: backup / list / restore ---------------------
+    _SNAPSHOT_ID = re.compile(r"\d{8}T\d{6}Z(-\d{1,3})?")
+
+    def _snapshot_dir(self) -> str:
+        return self.hass.config.path("vega", f"command_snapshots_{self.imei}")
+
+    @staticmethod
+    def _command_keys() -> list[tuple[str, int, int, int]]:
+        return ([(f"5502/{i}", 5502, i, protocol.CAN_SCRIPT_SIZE) for i in range(protocol.CAN_SCRIPT_COUNT)]
+                + [(f"4001/{i}", 4001, i, 50) for i in range(protocol.SCENARIO_COUNT)])
+
+    async def _read_command_records(self, session) -> dict[str, bytes]:
+        """Read every scenario and CAN slot and refresh the editor cache."""
+        records = {}
+        for key, setting, index, size in self._command_keys():
+            records[key] = await self._read_setting(session, setting, index, size)
+        self._scenario_read_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        for key, raw in records.items():
+            self._store_config_record(key, raw)
+        return records
+
+    async def _save_command_snapshot(self, records: dict[str, bytes], note: str) -> dict:
+        folder = self._snapshot_dir()
+        now = time.gmtime()
+        meta = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", now), "note": note}
+        document = {"version": 1, "imei": self.imei, **meta,
+                    "records": {k: v.hex() for k, v in records.items()}}
+
+        def write() -> str:
+            os.makedirs(folder, exist_ok=True)
+            base = time.strftime("%Y%m%dT%H%M%SZ", now)
+            for suffix in [""] + [f"-{n}" for n in range(1, 1000)]:
+                try:
+                    stream = open(os.path.join(folder, f"{base}{suffix}.json"), "x", encoding="utf-8")
+                except FileExistsError:
+                    continue
+                with stream:
+                    json.dump(document, stream, ensure_ascii=False, indent=1)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                return base + suffix
+            raise OSError("no free snapshot name")
+
+        try:
+            backup_id = await self.hass.async_add_executor_job(write)
+        except OSError as err:
+            raise CommandError("Не удалось сохранить резервную копию") from err
+        return {"backup_id": backup_id, **meta}
+
+    def _load_command_snapshot(self, backup_id: str) -> dict[str, bytes]:
+        if not isinstance(backup_id, str) or not self._SNAPSHOT_ID.fullmatch(backup_id):
+            raise ValueError("Некорректный идентификатор резервной копии")
+        try:
+            with open(os.path.join(self._snapshot_dir(), backup_id + ".json"), encoding="utf-8") as stream:
+                document = json.load(stream)
+        except FileNotFoundError:
+            raise ValueError("Резервная копия не найдена") from None
+        if not isinstance(document, dict) or document.get("version") != 1:
+            raise ValueError("Неизвестный формат резервной копии")
+        if document.get("imei") != self.imei:
+            raise ValueError("Резервная копия сделана с другого трекера")
+        saved = document.get("records")
+        expected = self._command_keys()
+        if not isinstance(saved, dict) or set(saved) != {key for key, *_ in expected}:
+            raise ValueError("Резервная копия неполная")
+        records = {}
+        for key, _setting, _index, size in expected:
+            if not isinstance(saved[key], str):
+                raise ValueError(f"{key}: повреждённые данные копии")
+            raw = bytes.fromhex(saved[key])
+            if len(raw) != size:
+                raise ValueError(f"{key}: в копии требуется {size} байт")
+            records[key] = raw
+        return records
+
+    async def async_backup_commands(self, note: str = "") -> dict:
+        """Save all scenarios and CAN slots as read from the tracker right now."""
+        note = " ".join(str(note or "").split())[:120]
+        async with self._scripts_lock:
+            session = self._script_session()
+            try:
+                records = await self._read_command_records(session)
+                return await self._save_command_snapshot(records, note)
+            except (OSError, asyncio.TimeoutError) as err:
+                self._scenario_read_at = None
+                raise CommandError(f"Чтение прервано: {err}") from err
+            except CommandError:
+                self._scenario_read_at = None
+                raise
+            finally:
+                await self._persist_scripts()
+                await self._persist_scenarios()
+                self._publish()
+
+    async def async_list_command_backups(self) -> dict:
+        folder = self._snapshot_dir()
+
+        def scan() -> list[dict]:
+            items = []
+            try:
+                names = os.listdir(folder)
+            except FileNotFoundError:
+                return items
+            for name in names:
+                backup_id, ext = os.path.splitext(name)
+                if ext != ".json" or not self._SNAPSHOT_ID.fullmatch(backup_id):
+                    continue
+                try:
+                    with open(os.path.join(folder, name), encoding="utf-8") as stream:
+                        document = json.load(stream)
+                    items.append({"backup_id": backup_id, "time": str(document["time"]),
+                                  "note": str(document.get("note") or ""),
+                                  "this_tracker": document.get("imei") == self.imei})
+                except (OSError, ValueError, KeyError, TypeError):
+                    items.append({"backup_id": backup_id, "time": "", "note": "Файл повреждён",
+                                  "this_tracker": False})
+            return sorted(items, key=lambda item: item["backup_id"], reverse=True)
+
+        return {"backups": await self.hass.async_add_executor_job(scan)}
+
+    async def async_restore_commands(self, backup_id: str) -> dict:
+        """Write back the records that differ from a snapshot, verifying each.
+
+        The current state is saved as a new snapshot first. No retries: a
+        failure stops the remaining writes and reports what was confirmed.
+        """
+        try:
+            records = await self.hass.async_add_executor_job(self._load_command_snapshot, backup_id)
+        except (ValueError, OSError) as err:
+            raise CommandError(str(err)) from err
+        async with self._scripts_lock:
+            if not self.direct_control:
+                raise CommandError("Direct Control выключен")
+            session = self._script_session()
+            confirmed = []
+            attempted = None
+            try:
+                current = await self._read_command_records(session)
+                changes = {k: v for k, v in records.items() if current[k] != v}
+                if not changes:
+                    return {"verified": True, "unchanged": True, "written": []}
+                safety = await self._save_command_snapshot(
+                    current, f"Автоматически перед восстановлением копии {backup_id}")
+                for key in sorted(changes, key=lambda k: (not k.startswith("5502/"), int(k.split("/")[1]))):
+                    if not self.direct_control:
+                        raise CommandError("Direct Control выключен; дальнейшая запись отменена")
+                    setting, index = map(int, key.split("/"))
+                    desired = changes[key]
+                    before = await self._read_setting(session, setting, index, len(desired))
+                    self._store_config_record(key, before)
+                    if before != current[key]:
+                        raise CommandError(f"{key}: настройки изменились перед записью")
+                    if not self.direct_control:
+                        raise CommandError("Direct Control выключен; дальнейшая запись отменена")
+                    attempted = key
+                    try:
+                        await session.set_setting(setting, index, desired)
+                    except (OSError, asyncio.TimeoutError):
+                        pass  # A lost ACK can still accompany a successful write.
+                    actual = None
+                    for attempt in range(3):
+                        try:
+                            actual = await self._read_setting(session, setting, index, len(desired))
+                            if actual == desired:
+                                break
+                        except (CommandError, OSError, asyncio.TimeoutError):
+                            actual = None
+                        if attempt < 2:
+                            await asyncio.sleep(0.3)
+                    self._store_config_record(key, actual)
+                    if actual != desired:
+                        detail = "нет ответа на чтение" if actual is None else "прочитанные байты отличаются"
+                        raise CommandError(f"{key}: запись не подтверждена — {detail}")
+                    confirmed.append(key)
+                    attempted = None
+                return {"verified": True, "unchanged": False, "written": confirmed,
+                        "safety_backup_id": safety["backup_id"]}
+            except (CommandError, OSError, asyncio.TimeoutError) as err:
+                self._scenario_read_at = None
+                done = ", ".join(confirmed) or "нет"
+                pending = f" Возможна неподтверждённая запись {attempted}." if attempted else ""
+                raise CommandError(f"{err}. Подтверждённые записи: {done}.{pending} "
+                                   "Перечитайте настройки и повторите восстановление") from err
             except asyncio.CancelledError:
                 if attempted:
                     self._store_config_record(attempted, None)

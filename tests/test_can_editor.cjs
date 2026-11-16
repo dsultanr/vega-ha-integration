@@ -315,8 +315,12 @@ test('legacy drafts, missing count and nonrepresentable delays cannot be saved',
 });
 
 const preparedClimate = JSON.parse(fs.readFileSync(path.join(__dirname, '../tools/preheat_profile.json'), 'utf8'));
-function climateEditor(bundle = false) {
+const testedVehicle = 'F515 / i-Space 4WD, ПО мультимедиа SAIOS v2.11';
+function climateEditor(bundle = false, verified = true) {
   const state = bundle ? commandEditor() : editor(4);
+  state.e._attributes().climate_profile = verified
+    ? {verified: true, profile: 'f515_ispace_4wd', profile_name: 'F515 / i-Space 4WD', verified_on: testedVehicle}
+    : {verified: false, verified_on: testedVehicle};
   Object.assign(state.data, JSON.parse(JSON.stringify(preparedClimate.script)), {slot:4, editable:true, raw:preparedClimate.candidate_hex});
   if (bundle) state.e._openCommandEditor([3], 'Прогрев', 'preheat'); else state.e._openModal(state.data);
   return state;
@@ -462,4 +466,100 @@ test('multiple climate programs retain other drafts and reject unapplied switchi
   after = JSON.parse(e.querySelector('#slot-json').value);
   assert.deepEqual(after.scripts[0],first);
   assert.equal(after.scripts[1].slot,5);
+});
+
+test('climate form is locked until the vehicle profile is verified by the server', async () => {
+  for (const bundle of [false, true]) {
+    const {e, calls} = climateEditor(bundle, false);
+    const before = e.querySelector('#slot-json').value;
+    assert.match(e.querySelector('#climate-form').innerHTML, /проверена только на одном автомобиле: F515 \/ i-Space 4WD, ПО мультимедиа SAIOS v2\.11/);
+    assert.equal(e.querySelector('#climate-temperature').disabled, true);
+    assert.equal(e.querySelector('#climate-apply').disabled, true);
+    chooseClimate(e, variedClimate);
+    assert.equal(e.querySelector('#slot-json').value, before);
+    // No profile chosen: nothing is sent.
+    await e.querySelector('#climate-check').listeners.click();
+    assert.equal(calls.length, 0);
+    e.querySelector('#climate-vehicle').value = 'f515_ispace_4wd';
+    e._hass.callWS = async msg => { calls.push(msg); return {response: {verified: true, profile: 'f515_ispace_4wd', profile_name: 'F515 / i-Space 4WD'}}; };
+    await e.querySelector('#climate-check').listeners.click();
+    assert.equal(calls[0].service, 'check_climate_profile');
+    assert.equal(JSON.stringify(calls[0].service_data), JSON.stringify({profile: 'f515_ispace_4wd', entry_id: 'tracker-one'}));
+    assert.match(e.querySelector('#climate-form').innerHTML, /Профиль подтверждён/);
+    assert.equal(e.querySelector('#climate-temperature').disabled, false);
+    chooseClimate(e, variedClimate);
+    assert.notEqual(e.querySelector('#slot-json').value, before);
+  }
+});
+
+test('rejected or unconfirmed vehicle check keeps the climate form locked', async () => {
+  for (const reply of [async () => { throw new Error('Датчик SoC не соответствует профилю'); }, async () => ({response: {verified: false}})]) {
+    const {e} = climateEditor(false, false);
+    const before = e.querySelector('#slot-json').value;
+    e.querySelector('#climate-vehicle').value = 'f515_ispace_4wd';
+    e._hass.callWS = reply;
+    await e.querySelector('#climate-check').listeners.click();
+    assert.match(e.querySelector('#climate-gate-status').textContent, /Форма недоступна/);
+    assert.equal(e._climateAllowed, false);
+    chooseClimate(e, variedClimate);
+    assert.equal(e.querySelector('#slot-json').value, before);
+  }
+});
+
+test('a failed recheck overrides an earlier verified state for the same tracker only', () => {
+  const {e} = climateEditor(false, true);
+  e._climateChecked = {entry_id: 'tracker-one', state: {verified: false}};
+  assert.equal(e._climateProfile().verified, false);
+  e._climateChecked = {entry_id: 'another-tracker', state: {verified: false}};
+  assert.equal(e._climateProfile().verified, true);
+});
+
+test('backup dialog saves a snapshot and restores only after confirmation with Direct Control', async () => {
+  const {e, calls} = editor(4);
+  const copies = [{backup_id: '20261116T100000Z', time: '2026-11-16T10:00:00Z', note: '<b>до правок</b>', this_tracker: true},
+                  {backup_id: '20261115T100000Z', time: '2026-11-15T10:00:00Z', note: '', this_tracker: false}];
+  e._hass.callWS = async msg => {
+    calls.push(msg);
+    if (msg.service === 'list_command_backups') return {response: {backups: copies}};
+    if (msg.service === 'backup_commands') return {response: {backup_id: '20261116T110000Z', time: '2026-11-16T11:00:00Z'}};
+    return {response: {verified: true, unchanged: false, written: ['5502/4', '4001/3']}};
+  };
+  await e._openBackups();
+  let html = e.querySelector('#backup-list').innerHTML;
+  assert.equal(calls[0].service, 'list_command_backups');
+  assert.ok(html.includes('&lt;b&gt;до правок&lt;/b&gt;') && !html.includes('<b>до правок'));
+  // Direct Control is off: no copy can be restored from the list.
+  assert.equal((html.match(/data-ask="\d" disabled/g) || []).length, 2);
+  assert.match(html, /включите Direct Control/);
+  e._attributes().direct_control = true;
+  e._renderBackups();
+  html = e.querySelector('#backup-list').innerHTML;
+  assert.match(html, /data-ask="0" >/);
+  assert.match(html, /data-ask="1" disabled/);  // foreign or damaged copy
+  assert.ok(!html.includes('Да, восстановить'));
+  e._backupConfirm = copies[0].backup_id;
+  e._renderBackups();
+  assert.match(e.querySelector('#backup-list').innerHTML, /data-restore="0">Да, восстановить/);
+  e.querySelector('#backup-note').value = 'перед зимой';
+  await e.querySelector('#backup-create').listeners.click();
+  assert.equal(JSON.stringify(calls[1].service_data), JSON.stringify({note: 'перед зимой', entry_id: 'tracker-one'}));
+  assert.equal(calls[2].service, 'list_command_backups');
+  await e._restoreBackup(copies[0]);
+  assert.equal(JSON.stringify(calls[3].service_data), JSON.stringify({backup_id: '20261116T100000Z', entry_id: 'tracker-one'}));
+  assert.equal(e.lastEvent.detail.message, 'Копия восстановлена. Проверено записей: 2');
+  assert.equal(e._saving, false);
+});
+
+test('failed or unverified restore reports the error and never claims success', async () => {
+  for (const reply of [async () => { throw new Error('5502/4: запись не подтверждена'); }, async () => ({response: {verified: false}})]) {
+    const {e} = editor(4);
+    e._hass.callWS = async msg => msg.service === 'list_command_backups' ? {response: {backups: []}} : reply();
+    await e._openBackups();
+    assert.match(e.querySelector('#backup-list').innerHTML, /Копий пока нет/);
+    e.lastEvent = null;
+    await e._restoreBackup({backup_id: '20261116T100000Z'});
+    assert.match(e.querySelector('#editor-error').textContent, /Ошибка восстановления/);
+    assert.equal(e.lastEvent, null);
+    assert.equal(e._saving, false);
+  }
 });

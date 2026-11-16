@@ -64,6 +64,21 @@ class Plan:
                 "change_count": len(self.changes)}
 
 
+def soc_bus(slots: list[bytes]) -> int:
+    """Bus of the single known SoC decoder; identifies the tested CAN matrix."""
+    socs = [r for r in slots if int.from_bytes(r[9:11], "little") == 2803]
+    if len(socs) != 1:
+        raise ValueError("Не найден единственный датчик SoC для этого профиля")
+    soc = socs[0]
+    if not (soc[0] == 8 and soc[1] in (1, 2, 3) and soc[2:6] == bytes(4)
+            and soc[8] == 1 and soc[42:46] == struct.pack("<I", 0x104)
+            and soc[55:57] == bytes((10, 0x99))
+            and soc[57:81] == struct.pack("<QQff", 0, 1023, 0.1, 0)
+            and soc[81:] == bytes(3)):
+        raise ValueError("Датчик SoC не соответствует профилю F515 / i-Space 4WD")
+    return soc[1]
+
+
 def prepare(snapshot: dict[str, bytes], profile: str) -> Plan:
     if profile != PROFILE:
         raise ValueError("Выберите поддерживаемый профиль F515 / i-Space 4WD")
@@ -86,18 +101,7 @@ def prepare(snapshot: dict[str, bytes], profile: str) -> Plan:
             if sid in SENSOR_IDS:
                 raise ValueError(f"Датчик {sid} уже занят в ISO-TP (5503/{group})")
 
-    # Determine the bus from the existing, known SoC decoder, not a fixed slot.
-    socs = [r for r in slots if int.from_bytes(r[9:11], "little") == 2803]
-    if len(socs) != 1:
-        raise ValueError("Не найден единственный датчик SoC для этого профиля")
-    soc = socs[0]
-    if not (soc[0] == 8 and soc[1] in (1, 2, 3) and soc[2:6] == bytes(4)
-            and soc[8] == 1 and soc[42:46] == struct.pack("<I", 0x104)
-            and soc[55:57] == bytes((10, 0x99))
-            and soc[57:81] == struct.pack("<QQff", 0, 1023, 0.1, 0)
-            and soc[81:] == bytes(3)):
-        raise ValueError("Датчик SoC не соответствует профилю F515 / i-Space 4WD")
-    bus = soc[1]
+    bus = soc_bus(slots)
     free = [i for i, raw in enumerate(slots) if raw == empty_slot()]
     changes, sensors = {}, []
     for sid, name in ((2922, "Напряжение ВВБ"), (2923, "Ток ВВБ")):

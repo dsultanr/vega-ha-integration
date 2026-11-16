@@ -8,7 +8,7 @@ from __future__ import annotations
 import binascii
 import struct
 
-from .hv_profile import _crc, _same_sensor, empty_slot
+from .hv_profile import PROFILE, PROFILE_NAME, _crc, _same_sensor, empty_slot, soc_bus
 
 SENSOR_IDS = (2924, 2925)
 PERIOD = bytes.fromhex("00050000")
@@ -33,6 +33,46 @@ def sensor_record(sid: int, bus: int) -> bytes:
     return _crc(raw)
 
 
+def heater_bus(slots: list[bytes]) -> int:
+    """Bus of the stock wheel-heater decoder (sensor 2918).
+
+    It uses the same 3-bit unsigned extraction as the added climate sensors.
+    Validate the full decoder body; never rely on its slot number.
+    """
+    anchors = [r for r in slots if int.from_bytes(r[9:11], "little") == 2918]
+    expected = bytearray(sensor_record(2924, 1))
+    struct.pack_into("<I", expected, 42, 0x3A9)
+    expected[46:57] = bytes(9) + bytes((3, 1))
+    if (len(anchors) != 1 or anchors[0][0] not in (8, 9) or anchors[0][8] != 1
+            or anchors[0][1] not in (1, 2, 3) or anchors[0][42:] != expected[42:]):
+        raise ValueError("Декодер обогрева руля не соответствует профилю F515 / i-Space 4WD")
+    return anchors[0][1]
+
+
+# The climate form writes CAN commands captured on one vehicle only. Other
+# trims and software versions may use different commands, so the form stays
+# locked until the tracker's CAN matrix matches the tested one.
+VERIFIED_ON = "F515 / i-Space 4WD, ПО мультимедиа SAIOS v2.11 (сборка от 12.01.2026)"
+FINGERPRINT_READS = [(5500, slot, 84) for slot in range(128)]
+
+
+def verify_vehicle(snapshot: dict[str, bytes], profile: str) -> dict:
+    """Compare the tracker's CAN decoders with the tested vehicle; no I/O."""
+    if profile != PROFILE:
+        raise ValueError(f"Редактор климата проверен только на профиле {PROFILE_NAME}")
+    for setting, sub, size in FINGERPRINT_READS:
+        key = f"{setting}/{sub}"
+        if key not in snapshot or len(snapshot[key]) != size:
+            raise ValueError(f"{key}: неполный снимок настроек; перечитайте трекер")
+    slots = [snapshot[f"5500/{i}"] for i in range(128)]
+    for i, raw in enumerate(slots):
+        if (raw[0] not in (8, 9) or raw[1] not in (0, 1, 2, 3) or raw[2:6] != bytes(4)
+                or raw[6:8] != struct.pack("<H", binascii.crc_hqx(raw[42:], 65535))):
+            raise ValueError(f"5500/{i}: неизвестный формат CAN; проверка отменена")
+    return {"profile": PROFILE, "profile_name": PROFILE_NAME,
+            "battery_bus": soc_bus(slots), "body_bus": heater_bus(slots)}
+
+
 def prepare(snapshot: dict[str, bytes]) -> dict[str, bytes]:
     """Return ordered setting writes, rejecting occupied IDs and unknown formats."""
     for setting, sub, size in READS:
@@ -52,16 +92,10 @@ def prepare(snapshot: dict[str, bytes]) -> dict[str, bytes]:
         for start in (8, 83, 158):
             if int.from_bytes(raw[start+10:start+12], "little") in SENSOR_IDS:
                 raise ValueError("Climate sensor ID occupied in ISO-TP")
-    # Existing wheel heater uses the same 3-bit unsigned extraction. Validate
-    # the full decoder body and infer the bus from it, not from its slot number.
-    anchors = [r for r in slots if int.from_bytes(r[9:11], "little") == 2918]
-    expected = bytearray(sensor_record(2924, 1))
-    struct.pack_into("<I", expected, 42, 0x3A9)
-    expected[46:57] = bytes(9) + bytes((3, 1))
-    if (len(anchors) != 1 or anchors[0][0] not in (8, 9) or anchors[0][8] != 1
-            or anchors[0][1] not in (1, 2, 3) or anchors[0][42:] != expected[42:]):
-        raise ValueError("Existing heater decoder does not match the F515 profile")
-    bus = anchors[0][1]
+    try:
+        bus = heater_bus(slots)
+    except ValueError as err:
+        raise ValueError("Existing heater decoder does not match the F515 profile") from err
     free = [i for i, raw in enumerate(slots) if raw == empty_slot()]
     changes = {}
     for sid in SENSOR_IDS:

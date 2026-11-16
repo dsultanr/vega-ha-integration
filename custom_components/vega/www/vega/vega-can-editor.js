@@ -357,6 +357,142 @@ class VegaCanEditor extends HTMLElement {
     return result.response;
   }
 
+  // The climate form writes CAN commands captured on one vehicle. It stays
+  // locked until the server has matched the tracker's CAN matrix with it.
+  _climateProfile() {
+    const entryId = this._editorEntryId || this._attributes().entry_id;
+    if (this._climateChecked && this._climateChecked.entry_id === entryId) return this._climateChecked.state;
+    return this._attributes().climate_profile || {};
+  }
+
+  async _checkClimateProfile(rerender) {
+    if (this._saving || this._climateChecking) return;
+    const select = this.querySelector('#climate-vehicle'), status = this.querySelector('#climate-gate-status');
+    if (!select || !select.value) { if (status) status.textContent = 'Выберите профиль автомобиля.'; return; }
+    const entryId = this._editorEntryId;
+    this._climateChecking = true;
+    this.querySelector('#climate-check').disabled = true;
+    status.textContent = 'Читаю настройки трекера… Это занимает около минуты.';
+    try {
+      const response = await this._call('check_climate_profile', {profile: select.value, entry_id: entryId});
+      if (response?.verified !== true) throw new Error('Подтверждение не получено');
+      this._climateChecked = {entry_id: entryId, state: response};
+      this._climateChecking = false;
+      rerender();
+    } catch (e) {
+      this._climateChecked = {entry_id: entryId, state: {verified: false}};
+      this._climateChecking = false;
+      const current = this.querySelector('#climate-gate-status');
+      if (current) current.textContent = `Форма недоступна: ${e.message || e}`;
+      const button = this.querySelector('#climate-check');
+      if (button) button.disabled = false;
+    }
+  }
+
+  _backupDate(text) {
+    const date = new Date(text);
+    return text && !Number.isNaN(date.getTime()) ? date.toLocaleString('ru-RU') : 'дата неизвестна';
+  }
+
+  _openBackups() {
+    if (this._saving) return;
+    this._activeSlot = null;
+    this._activeCommand = null;
+    this._editorEntryId = this._attributes().entry_id;
+    this._modalContainer.innerHTML = `
+      <div class="modal-backdrop" id="backdrop"><div class="modal-box" role="dialog" aria-label="Резервные копии сценариев">
+        <div class="modal-header"><span class="modal-title">Резервные копии</span><button class="modal-close" id="close-x">&times;</button></div>
+        <div class="modal-body">
+          <div class="hint">Копия содержит все 25 сценариев и 8 CAN-слотов в том виде, в каком они прочитаны из трекера. Файлы хранятся в /config/vega/ на сервере Home Assistant.</div>
+          <div class="backup-new"><input id="backup-note" maxlength="120" placeholder="Примечание (необязательно)" aria-label="Примечание к копии"><button class="btn" id="backup-create">Сохранить копию из трекера</button></div>
+          <div class="hint">Восстановление записывает в трекер только отличающиеся записи и проверяет каждую чтением. Текущее состояние перед этим сохраняется отдельной копией. Нужен Direct Control.</div>
+          <div id="backup-list"><div class="hint">Загружаю список…</div></div>
+          <div class="error" id="editor-error" role="alert"></div>
+        </div>
+        <div class="modal-footer"><button class="btn sec" id="close-btn">Закрыть</button></div>
+      </div></div>`;
+    const close = () => { if (!this._saving) this._modalContainer.innerHTML = ''; };
+    this.querySelector('#close-btn').addEventListener('click', close);
+    this.querySelector('#close-x').addEventListener('click', close);
+    this.querySelector('#backdrop').addEventListener('click', e => { if (e.target.id === 'backdrop') close(); });
+    this.querySelector('#backup-create').addEventListener('click', () => this._createBackup());
+    return this._loadBackups();
+  }
+
+  async _loadBackups() {
+    const list = this.querySelector('#backup-list');
+    if (!list) return;
+    try {
+      const response = await this._call('list_command_backups', {entry_id: this._editorEntryId});
+      if (!this.querySelector('#backup-list')) return;
+      this._backups = (response && response.backups) || [];
+      this._renderBackups();
+    } catch (e) {
+      if (this.querySelector('#backup-list')) list.innerHTML = `<div class="error">Не удалось получить список: ${escapeHtml(e.message || String(e))}</div>`;
+    }
+  }
+
+  _renderBackups() {
+    const list = this.querySelector('#backup-list');
+    if (!list) return;
+    const direct = !!this._attributes().direct_control;
+    if (!this._backups.length) { list.innerHTML = '<div class="hint">Копий пока нет.</div>'; return; }
+    list.innerHTML = this._backups.map((b, i) => `
+      <div class="command-row"><div><div class="slot-title">${escapeHtml(this._backupDate(b.time))}</div>
+        <div class="hint">${escapeHtml(b.note || 'Без примечания')}${b.this_tracker ? '' : ' · копия другого трекера или повреждена'}</div></div>
+        ${this._backupConfirm === b.backup_id
+          ? `<button class="btn" data-restore="${i}">Да, восстановить</button><button class="btn sec" data-cancel="1">Отмена</button>`
+          : `<button class="btn sec" data-ask="${i}" ${direct && b.this_tracker && !this._saving ? '' : 'disabled'}>Восстановить</button>`}
+      </div>`).join('') + (direct ? '' : '<div class="hint">Для восстановления включите Direct Control на странице устройства.</div>');
+    for (const button of list.querySelectorAll ? list.querySelectorAll('button') : []) {
+      button.addEventListener('click', () => {
+        if (this._saving) return;
+        if (button.dataset.cancel) this._backupConfirm = null;
+        else if (button.dataset.ask !== undefined) this._backupConfirm = this._backups[Number(button.dataset.ask)].backup_id;
+        else return this._restoreBackup(this._backups[Number(button.dataset.restore)]);
+        this._renderBackups();
+      });
+    }
+  }
+
+  async _createBackup() {
+    if (this._saving) return;
+    const button = this.querySelector('#backup-create'), error = this.querySelector('#editor-error');
+    this._saving = true;
+    button.disabled = true;
+    button.textContent = 'Читаю трекер…';
+    error.textContent = '';
+    try {
+      const response = await this._call('backup_commands', {note: this.querySelector('#backup-note').value || '', entry_id: this._editorEntryId});
+      if (!response?.backup_id) throw new Error('Подтверждение сохранения не получено');
+      this._toast(`Резервная копия сохранена: ${this._backupDate(response.time)}`);
+      this.querySelector('#backup-note').value = '';
+    } catch (e) { error.textContent = `Копия не сохранена: ${e.message || e}`; }
+    finally {
+      this._saving = false;
+      button.disabled = false;
+      button.textContent = 'Сохранить копию из трекера';
+    }
+    await this._loadBackups();
+  }
+
+  async _restoreBackup(backup) {
+    if (this._saving || !backup) return;
+    const error = this.querySelector('#editor-error');
+    this._saving = true;
+    this._backupConfirm = null;
+    this._renderBackups();
+    error.textContent = '';
+    this.querySelector('#backup-list').insertAdjacentHTML?.('afterbegin', '<div class="hint">Восстанавливаю и проверяю записи…</div>');
+    try {
+      const response = await this._call('restore_commands', {backup_id: backup.backup_id, entry_id: this._editorEntryId});
+      if (response?.verified !== true) throw new Error('Подтверждение восстановления не получено. Перечитайте настройки');
+      this._toast(response.unchanged ? 'Настройки трекера уже совпадают с копией' : `Копия восстановлена. Проверено записей: ${response.written.length}`);
+    } catch (e) { error.textContent = `Ошибка восстановления: ${e.message || e}`; }
+    finally { this._saving = false; }
+    await this._loadBackups();
+  }
+
   async _read() {
     if (this._reading || this._saving) return;
     this._reading = true;
@@ -403,6 +539,9 @@ class VegaCanEditor extends HTMLElement {
           .command-row .hint { margin-top:4px; overflow-wrap:anywhere; }
           .tabs { display:flex; gap:6px; padding:4px 16px 12px; flex-wrap:wrap; }
           .tabs [aria-selected="true"] { background:var(--primary-color); color:white; }
+          .backup-new { display:flex; gap:8px; flex-wrap:wrap; }
+          .backup-new input { flex:1; min-width:180px; min-height:36px; box-sizing:border-box; padding:6px 10px; border-radius:8px; font:inherit;
+                              border:1px solid var(--divider-color, #555); background:var(--card-background-color, #252525); color:var(--primary-text-color, #eee); }
           .preview { padding:10px; background:var(--secondary-background-color); border-radius:8px; font-size:13px; }
 
           /* Modal Window Styles */
@@ -477,6 +616,7 @@ class VegaCanEditor extends HTMLElement {
         </style>
         <div class="bar">
           <button class="btn sec" id="read">Прочитать из трекера</button>
+          <button class="btn sec" id="backups">Резервные копии</button>
           <span class="hint">Запись требует включённого Direct Control.</span>
         </div>
         <div class="tabs" role="tablist">
@@ -489,6 +629,7 @@ class VegaCanEditor extends HTMLElement {
       </ha-card>
     `;
     this.querySelector("#read").addEventListener("click", () => this._read());
+    this.querySelector("#backups").addEventListener("click", () => this._openBackups());
     for (const view of ["commands", "scenarios", "slots"]) {
       this.querySelector(`#tab-${view}`).addEventListener("click", () => { this._view = view; this._update(); });
     }
@@ -656,6 +797,15 @@ class VegaCanEditor extends HTMLElement {
     const script = scripts.find(s => s.slot === this._climateSlot) || scripts[0];
     this._climateSlot = script.slot;
     const settings = climateSettings(script);
+    const vehicle = this._climateProfile();
+    this._climateAllowed = vehicle.verified === true && vehicle.profile === 'f515_ispace_4wd';
+    const verifiedOn = vehicle.verified_on || this._attributes().climate_profile?.verified_on || 'F515 / i-Space 4WD';
+    const gate = this._climateAllowed
+      ? `<div class="climate-gate ok">Профиль подтверждён: ${escapeHtml(vehicle.profile_name || 'F515 / i-Space 4WD')}${vehicle.checked_at ? `, проверка ${escapeHtml(this._backupDate(vehicle.checked_at))}` : ''}.</div>`
+      : `<div class="climate-gate"><div>Чтобы открыть форму, выберите профиль и проверьте совместимость. Проверка только читает настройки трекера; нужно соединение Vega Binary.</div>
+          <div class="climate-actions"><select id="climate-vehicle" aria-label="Профиль автомобиля"><option value="">Выберите профиль</option><option value="f515_ispace_4wd">F515 / i-Space 4WD</option></select>
+          <button class="btn" id="climate-check">Проверить совместимость</button></div>
+          <div class="climate-status" id="climate-gate-status" aria-live="polite"></div></div>`;
     root.innerHTML = `
       <style>
         .climate-profile{border:1px solid var(--divider-color,#454545);border-radius:12px;padding:16px;margin-bottom:16px}
@@ -663,15 +813,19 @@ class VegaCanEditor extends HTMLElement {
         .climate-grid label{display:grid;gap:6px;min-width:0;font-size:14px}
         .climate-profile select{width:100%;min-height:44px;border:1px solid var(--divider-color,#555);border-radius:8px;padding:8px;background:var(--card-background-color,#252525);color:var(--primary-text-color,#eee);font:inherit}
         .climate-actions{display:flex;gap:8px;flex-wrap:wrap}.climate-status{margin-top:10px;font-size:13px;color:var(--secondary-text-color,#bbb)}
+        .climate-gate{margin:12px 0;padding:10px 12px;border-radius:8px;font-size:13px;background:var(--secondary-background-color,rgba(255,255,255,.06));border-left:4px solid var(--warning-color,#ffa600)}
+        .climate-gate.ok{border-left-color:var(--success-color,#43a047)}.climate-gate select{width:auto;flex:1;min-width:180px;margin-top:8px}.climate-gate .btn{margin-top:8px}
         @media(max-width:500px){.climate-grid{grid-template-columns:1fr}.climate-profile{padding:12px}}
       </style>
       <section class="climate-profile" aria-label="Климатический профиль">
         <h3>Климатический профиль</h3>
+        <div class="hint">Форма проверена только на одном автомобиле: ${escapeHtml(verifiedOn)}. На других комплектациях и версиях ПО CAN-команды могут отличаться, поэтому там форма недоступна.</div>
+        ${gate}
         <div class="hint">После удалённого запуска скорость вентилятора и обдув пока могут оставаться в AUTO. Температура и обогревы проверены отдельно.</div>
         <div class="hint">Настройки для следующего выполнения сценария. «Не менять» не задаёт отдельную команду для выбранного параметра; итоговое состояние зависит от штатного запуска климата.</div>
         ${scripts.length > 1 ? `<label>Программа<select id="climate-program">${scripts.map(s => `<option value="${s.slot}">${escapeHtml(s.name)}</option>`).join('')}</select></label>` : ''}
         <div class="climate-grid">${climateFields.map(([key, label]) => `<label for="climate-${key}">${label}<select id="climate-${key}">${climateOptions(key).map(([v, text]) => `<option value="${v}">${text}</option>`).join('')}</select></label>`).join('')}</div>
-        <div class="climate-actions"><button class="btn" id="climate-apply" ${this._editable ? '' : 'disabled'}>Применить к черновику</button><button class="btn sec" id="climate-refresh">Загрузить из черновика</button></div>
+        <div class="climate-actions"><button class="btn" id="climate-apply" ${this._editable && this._climateAllowed ? '' : 'disabled'}>Применить к черновику</button><button class="btn sec" id="climate-refresh">Загрузить из черновика</button></div>
         <div class="climate-status" id="climate-status" aria-live="polite"></div>
       </section>`;
     for (const [key] of climateFields) this.querySelector(`#climate-${key}`).value = settings[key] === null ? 'keep' : String(settings[key]);
@@ -680,6 +834,10 @@ class VegaCanEditor extends HTMLElement {
       this.querySelector('#climate-status').textContent = 'Есть изменения: нажмите «Применить к черновику» перед сохранением.';
     });
     const readDraft = () => JSON.parse(this.querySelector('#slot-json').value);
+    this.querySelector('#climate-check')?.addEventListener('click', () => this._checkClimateProfile(() => {
+      if (!this.querySelector('#climate-form')) return;
+      try { this._renderClimateForm(readDraft(), bundle); } catch (err) { this.querySelector('#editor-error').textContent = err.message; }
+    }));
     const select = this.querySelector('#climate-program');
     if (select && scripts.length > 1) {
       select.value = String(script.slot);
@@ -699,7 +857,7 @@ class VegaCanEditor extends HTMLElement {
       try { this._renderClimateForm(readDraft(), bundle); } catch (err) { this.querySelector('#editor-error').textContent = err.message; }
     });
     this.querySelector('#climate-apply').addEventListener('click', () => {
-      if (this._saving || !this._editable) return;
+      if (this._saving || !this._editable || !this._climateAllowed) return;
       try {
         const current = readDraft();
         if (bundle) validateCommandDocument(current); else validateScript(current);
@@ -731,8 +889,10 @@ class VegaCanEditor extends HTMLElement {
   _climateBusy(busy) {
     for (const id of ['climate-apply', 'climate-refresh', 'climate-program', ...climateFields.map(([key]) => `climate-${key}`)]) {
       const element = this.querySelector(`#${id}`);
-      if (element) element.disabled = busy || !this._editable;
+      if (element) element.disabled = busy || !this._editable || (!this._climateAllowed && id !== 'climate-refresh');
     }
+    const check = this.querySelector('#climate-check');
+    if (check) check.disabled = busy || !!this._climateChecking;
   }
 
   _renderCommandPreview(doc) {
@@ -964,4 +1124,4 @@ if (!window.customCards.some(card => card.type === "vega-can-editor")) window.cu
   name: "Vega Commands Editor",
   description: "Условия сценариев, действия внешних выходов и связанные CAN-скрипты Vega",
 });
-console.info("%c VEGA-CAN-EDITOR v0.3.4 %c loaded ", "background:#00c0fc;color:#fff", "");
+console.info("%c VEGA-CAN-EDITOR v0.4.0 %c loaded ", "background:#00c0fc;color:#fff", "");

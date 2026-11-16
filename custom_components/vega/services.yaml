@@ -177,3 +177,62 @@ relay_status:
     entry_id:
       selector:
         text:
+
+check_climate_profile:
+  name: Проверить профиль для редактора климата
+  description: Прочитать CAN-декодеры трекера и сравнить их с проверенным автомобилем. Только чтение. Форма «Климатический профиль» доступна лишь после успешной проверки.
+  fields:
+    entry_id:
+      name: Интеграция Vega
+      description: Обязательно, если настроено несколько трекеров.
+      selector:
+        text:
+    profile:
+      name: Профиль автомобиля
+      required: true
+      selector:
+        select:
+          options:
+            - value: f515_ispace_4wd
+              label: F515 / i-Space 4WD
+
+backup_commands:
+  name: Сохранить резервную копию сценариев
+  description: Прочитать из трекера все 25 сценариев и 8 CAN-слотов и сохранить их в /config/vega/command_snapshots_<IMEI>/. Трекер не изменяется.
+  fields:
+    entry_id:
+      name: Интеграция Vega
+      description: Обязательно, если настроено несколько трекеров.
+      selector:
+        text:
+    note:
+      name: Примечание
+      description: Необязательная подпись копии, до 120 символов.
+      selector:
+        text:
+
+list_command_backups:
+  name: Список резервных копий сценариев
+  description: Вернуть сохранённые резервные копии сценариев и CAN-слотов, новые сверху.
+  fields:
+    entry_id:
+      name: Интеграция Vega
+      description: Обязательно, если настроено несколько трекеров.
+      selector:
+        text:
+
+restore_commands:
+  name: Восстановить сценарии из резервной копии
+  description: Записать в трекер отличающиеся сценарии и CAN-слоты из выбранной копии с проверкой обратным чтением. Текущее состояние перед записью сохраняется отдельной копией. Нужен Direct Control. Команды автомобилю не отправляются.
+  fields:
+    entry_id:
+      name: Интеграция Vega
+      description: Обязательно, если настроено несколько трекеров.
+      selector:
+        text:
+    backup_id:
+      name: Резервная копия
+      description: backup_id из ответа backup_commands или list_command_backups.
+      required: true
+      selector:
+        text:

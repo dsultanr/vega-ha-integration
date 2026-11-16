@@ -266,6 +266,38 @@ def _register_services(hass: HomeAssistant) -> None:
     async def _configure_hv(call) -> dict:
         return await _runtime(call).async_configure_hv_battery(call.data["plan_id"])
 
+    async def _check_climate(call) -> dict:
+        return await _runtime(call).async_check_climate_profile(call.data["profile"])
+
+    async def _backup_commands(call) -> dict:
+        return await _runtime(call).async_backup_commands(call.data.get("note", ""))
+
+    async def _list_backups(call) -> dict:
+        return await _runtime(call).async_list_command_backups()
+
+    async def _restore_commands(call) -> dict:
+        return await _runtime(call).async_restore_commands(call.data["backup_id"])
+
+    hass.services.async_register(
+        DOMAIN, "check_climate_profile", _check_climate,
+        schema=vol.Schema({vol.Optional("entry_id"): str, vol.Required("profile"): vol.In([PROFILE])}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, "backup_commands", _backup_commands,
+        schema=vol.Schema({vol.Optional("entry_id"): str, vol.Optional("note"): str}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, "list_command_backups", _list_backups,
+        schema=vol.Schema({vol.Optional("entry_id"): str}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, "restore_commands", _restore_commands,
+        schema=vol.Schema({vol.Optional("entry_id"): str, vol.Required("backup_id"): str}),
+        supports_response=SupportsResponse.ONLY,
+    )
     hass.services.async_register(
         DOMAIN, "prepare_hv_battery", _prepare_hv,
         schema=vol.Schema({vol.Optional("entry_id"): str, vol.Required("profile"): vol.In([PROFILE])}),
