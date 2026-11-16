@@ -1339,7 +1339,8 @@ class VegaRuntime:
         try:
             with open(self._climate_profile_path(), encoding="utf-8") as stream:
                 saved = json.load(stream)
-            if saved.get("profile") == climate_profile.PROFILE and saved.get("imei") == self.imei:
+            if (saved.get("profile") == climate_profile.PROFILE and saved.get("imei") == self.imei
+                    and saved.get("firmware") == climate_profile.VERIFIED_FIRMWARE):
                 state.update(verified=True, profile=saved["profile"],
                              profile_name=climate_profile.PROFILE_NAME,
                              checked_at=saved.get("checked_at"))
@@ -1363,6 +1364,15 @@ class VegaRuntime:
             try:
                 session = self._hv_session()
                 imei = self.imei
+                # The firmware is read live: a cached value may predate an update.
+                sensor = await session.query_sensor(climate_profile.FIRMWARE_SENSOR, 0)
+                firmware = None
+                if sensor and sensor.get("id") == climate_profile.FIRMWARE_SENSOR:
+                    try:
+                        firmware = bytes.fromhex(sensor["raw_hex"]).split(b"\0", 1)[0].decode("latin1")
+                    except (KeyError, TypeError, ValueError):
+                        firmware = None
+                climate_profile.check_firmware(profile, firmware)  # before the long scan
                 snapshot = {}
                 reads = climate_profile.FINGERPRINT_READS
                 for count, (setting, sub, size) in enumerate(reads, 1):
@@ -1372,10 +1382,10 @@ class VegaRuntime:
                     if count % 8 == 0 or count == len(reads):
                         self._climate_status("reading", "Читаю настройки трекера…",
                                              progress=count, total=len(reads))
-                result = climate_profile.verify_vehicle(snapshot, profile)
+                result = climate_profile.verify_vehicle(snapshot, profile, firmware)
                 if imei != self.imei:
                     raise CommandError("IMEI изменился; повторите проверку")
-                record = {"profile": result["profile"], "imei": imei,
+                record = {"profile": result["profile"], "imei": imei, "firmware": result["firmware"],
                           "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
                 def write():

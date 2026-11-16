@@ -17,6 +17,13 @@ HV = json.loads((FIXTURES / "hv_profile.json").read_text())
 CLIMATE = json.loads((FIXTURES / "climate_profile.json").read_text())
 
 
+FW = climate.VERIFIED_FIRMWARE
+
+
+def fw(text=FW):
+    return text.encode("latin1").ljust(50, b"\0")
+
+
 def decoders():
     data = {f"5500/{i}": bytes.fromhex(HV["empty"]) for i in range(128)}
     data["5500/7"] = bytes.fromhex(HV["soc"])
@@ -134,26 +141,44 @@ class BackupTests(Base):
 
 
 class ClimateGateTests(Base):
+    async def test_other_or_unreadable_tracker_firmware_keeps_form_locked_without_scanning(self):
+        self.session.settings.update({(5500, int(k.split("/")[1])): v for k, v in decoders().items()})
+        for raw, message in [(fw("VEGA MT X CAN LTE v5 0.10b rc43"), "не проверена"), (None, "Не удалось прочитать")]:
+            self.session.reads.clear()
+            if raw is None:
+                self.session.settings.pop((2, 0), None)
+            else:
+                self.session.settings[2, 0] = raw
+            with self.subTest(message=message), self.assertRaisesRegex(CommandError, message):
+                await self.runtime.async_check_climate_profile(climate.PROFILE)
+            self.assertEqual(self.session.reads, [(2, 0)])
+            self.assertFalse(self.runtime.climate_profile["verified"])
+
     def test_matrix_must_match_tested_vehicle(self):
-        self.assertEqual(climate.verify_vehicle(decoders(), climate.PROFILE)["profile"], climate.PROFILE)
+        self.assertEqual(climate.verify_vehicle(decoders(), climate.PROFILE, FW)["profile"], climate.PROFILE)
         with self.assertRaisesRegex(ValueError, "только на профиле"):
-            climate.verify_vehicle(decoders(), "f515_2wd")
+            climate.verify_vehicle(decoders(), "f515_2wd", FW)
         for key in ("5500/7", "5500/43"):
             data = decoders(); data[key] = data["5500/0"]
             with self.subTest(missing=key), self.assertRaises(ValueError):
-                climate.verify_vehicle(data, climate.PROFILE)
+                climate.verify_vehicle(data, climate.PROFILE, FW)
         data = decoders(); wheel = bytearray(data["5500/43"]); wheel[42] ^= 1
         data["5500/43"] = bytes(wheel)
         with self.assertRaises(ValueError):
-            climate.verify_vehicle(data, climate.PROFILE)
+            climate.verify_vehicle(data, climate.PROFILE, FW)
+        for firmware, message in [(None, "Не удалось прочитать"), ("", "Не удалось прочитать"),
+                                  ("VEGA MT X CAN LTE v5 0.10b rc41.49", "не проверена")]:
+            with self.subTest(firmware=firmware), self.assertRaisesRegex(ValueError, message):
+                climate.verify_vehicle(decoders(), climate.PROFILE, firmware)
         data = decoders(); del data["5500/127"]
         with self.assertRaisesRegex(ValueError, "неполный"):
-            climate.verify_vehicle(data, climate.PROFILE)
+            climate.verify_vehicle(data, climate.PROFILE, FW)
 
     async def test_form_is_locked_until_check_and_survives_restart(self):
         self.assertFalse(self.runtime.climate_profile["verified"])
         self.assertIn("4WD", self.runtime.climate_profile["verified_on"])
         self.session.settings.update({(5500, int(k.split("/")[1])): v for k, v in decoders().items()})
+        self.session.settings[2, 0] = fw()
         result = await self.runtime.async_check_climate_profile(climate.PROFILE)
         self.assertTrue(result["verified"])
         self.assertEqual(self.session.writes, [])
@@ -166,6 +191,7 @@ class ClimateGateTests(Base):
 
     async def test_failed_recheck_locks_a_previously_unlocked_form(self):
         self.session.settings.update({(5500, int(k.split("/")[1])): v for k, v in decoders().items()})
+        self.session.settings[2, 0] = fw()
         await self.runtime.async_check_climate_profile(climate.PROFILE)
         self.session.settings[5500, 43] = bytes.fromhex(HV["empty"])
         with self.assertRaisesRegex(CommandError, "обогрева руля"):

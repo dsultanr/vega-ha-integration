@@ -52,14 +52,25 @@ def heater_bus(slots: list[bytes]) -> int:
 # The climate form writes CAN commands captured on one vehicle only. Other
 # trims and software versions may use different commands, so the form stays
 # locked until the tracker's CAN matrix matches the tested one.
-VERIFIED_ON = "F515 / i-Space 4WD, ПО мультимедиа SAIOS v2.11 (сборка от 12.01.2026)"
+FIRMWARE_SENSOR = 2  # tracker software name; 3 is the modem, 4 the GNSS module
+VERIFIED_FIRMWARE = "VEGA MT X CAN LTE v5 0.10b rc41.56 'ISp4WD'"
+VERIFIED_ON = f"F515 / i-Space 4WD, прошивка трекера {VERIFIED_FIRMWARE}"
 FINGERPRINT_READS = [(5500, slot, 84) for slot in range(128)]
 
 
-def verify_vehicle(snapshot: dict[str, bytes], profile: str) -> dict:
-    """Compare the tracker's CAN decoders with the tested vehicle; no I/O."""
+def check_firmware(profile: str, firmware: str | None) -> None:
     if profile != PROFILE:
         raise ValueError(f"Редактор климата проверен только на профиле {PROFILE_NAME}")
+    if not isinstance(firmware, str) or not firmware.strip():
+        raise ValueError("Не удалось прочитать версию прошивки трекера")
+    if firmware.strip() != VERIFIED_FIRMWARE:
+        raise ValueError(f"Прошивка трекера {firmware.strip()} не проверена: "
+                         f"редактор климата проверен только на {VERIFIED_FIRMWARE}")
+
+
+def verify_vehicle(snapshot: dict[str, bytes], profile: str, firmware: str | None) -> dict:
+    """Compare tracker firmware and CAN decoders with the tested vehicle; no I/O."""
+    check_firmware(profile, firmware)
     for setting, sub, size in FINGERPRINT_READS:
         key = f"{setting}/{sub}"
         if key not in snapshot or len(snapshot[key]) != size:
@@ -69,7 +80,7 @@ def verify_vehicle(snapshot: dict[str, bytes], profile: str) -> dict:
         if (raw[0] not in (8, 9) or raw[1] not in (0, 1, 2, 3) or raw[2:6] != bytes(4)
                 or raw[6:8] != struct.pack("<H", binascii.crc_hqx(raw[42:], 65535))):
             raise ValueError(f"5500/{i}: неизвестный формат CAN; проверка отменена")
-    return {"profile": PROFILE, "profile_name": PROFILE_NAME,
+    return {"profile": PROFILE, "profile_name": PROFILE_NAME, "firmware": VERIFIED_FIRMWARE,
             "battery_bus": soc_bus(slots), "body_bus": heater_bus(slots)}
 
 

@@ -802,7 +802,7 @@ class VegaCanEditor extends HTMLElement {
     const verifiedOn = vehicle.verified_on || this._attributes().climate_profile?.verified_on || 'F515 / i-Space 4WD';
     const gate = this._climateAllowed
       ? `<div class="climate-gate ok">Профиль подтверждён: ${escapeHtml(vehicle.profile_name || 'F515 / i-Space 4WD')}${vehicle.checked_at ? `, проверка ${escapeHtml(this._backupDate(vehicle.checked_at))}` : ''}.</div>`
-      : `<div class="climate-gate"><div>Чтобы открыть форму, выберите профиль и проверьте совместимость. Проверка только читает настройки трекера; нужно соединение Vega Binary.</div>
+      : `<div class="climate-gate"><div>Чтобы открыть форму, выберите профиль и проверьте совместимость. Проверка только читает версию прошивки и настройки трекера; нужно соединение Vega Binary.</div>
           <div class="climate-actions"><select id="climate-vehicle" aria-label="Профиль автомобиля"><option value="">Выберите профиль</option><option value="f515_ispace_4wd">F515 / i-Space 4WD</option></select>
           <button class="btn" id="climate-check">Проверить совместимость</button></div>
           <div class="climate-status" id="climate-gate-status" aria-live="polite"></div></div>`;
@@ -819,7 +819,7 @@ class VegaCanEditor extends HTMLElement {
       </style>
       <section class="climate-profile" aria-label="Климатический профиль">
         <h3>Климатический профиль</h3>
-        <div class="hint">Форма проверена только на одном автомобиле: ${escapeHtml(verifiedOn)}. На других комплектациях и версиях ПО CAN-команды могут отличаться, поэтому там форма недоступна.</div>
+        <div class="hint">Форма проверена только на одном автомобиле: ${escapeHtml(verifiedOn)}. На других комплектациях и прошивках CAN-команды могут отличаться, поэтому там форма недоступна.</div>
         ${gate}
         <div class="hint">После удалённого запуска скорость вентилятора и обдув пока могут оставаться в AUTO. Температура и обогревы проверены отдельно.</div>
         <div class="hint">Настройки для следующего выполнения сценария. «Не менять» не задаёт отдельную команду для выбранного параметра; итоговое состояние зависит от штатного запуска климата.</div>

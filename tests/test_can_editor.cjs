@@ -315,7 +315,7 @@ test('legacy drafts, missing count and nonrepresentable delays cannot be saved',
 });
 
 const preparedClimate = JSON.parse(fs.readFileSync(path.join(__dirname, '../tools/preheat_profile.json'), 'utf8'));
-const testedVehicle = 'F515 / i-Space 4WD, ПО мультимедиа SAIOS v2.11';
+const testedVehicle = "F515 / i-Space 4WD, прошивка трекера VEGA MT X CAN LTE v5 0.10b rc41.56 'ISp4WD'";
 function climateEditor(bundle = false, verified = true) {
   const state = bundle ? commandEditor() : editor(4);
   state.e._attributes().climate_profile = verified
@@ -472,7 +472,7 @@ test('climate form is locked until the vehicle profile is verified by the server
   for (const bundle of [false, true]) {
     const {e, calls} = climateEditor(bundle, false);
     const before = e.querySelector('#slot-json').value;
-    assert.match(e.querySelector('#climate-form').innerHTML, /проверена только на одном автомобиле: F515 \/ i-Space 4WD, ПО мультимедиа SAIOS v2\.11/);
+    assert.match(e.querySelector('#climate-form').innerHTML, /проверена только на одном автомобиле: F515 \/ i-Space 4WD, прошивка трекера VEGA MT X CAN LTE v5 0.10b rc41.56 &#39;ISp4WD&#39;/);
     assert.equal(e.querySelector('#climate-temperature').disabled, true);
     assert.equal(e.querySelector('#climate-apply').disabled, true);
     chooseClimate(e, variedClimate);
