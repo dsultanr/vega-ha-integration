@@ -98,6 +98,8 @@ def prepare(snapshot: dict[str, bytes]) -> dict[str, bytes]:
             raise ValueError(f"Unknown CAN format or invalid CRC: 5500/{i}")
     for group in range(6):
         raw = snapshot[f"5503/{group}"]
+        if not any(raw):
+            continue  # An unused group is all zeros; it holds no sensors.
         if raw[:6] != bytes.fromhex("020900000000"):
             raise ValueError(f"Unknown ISO-TP format: 5503/{group}")
         for start in (8, 83, 158):

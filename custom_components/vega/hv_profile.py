@@ -94,6 +94,8 @@ def prepare(snapshot: dict[str, bytes], profile: str) -> Plan:
             raise ValueError(f"5500/{i}: контрольная сумма не совпадает")
     for group in range(6):
         raw = snapshot[f"5503/{group}"]
+        if not any(raw):
+            continue  # An unused group is all zeros; it holds no sensors.
         if raw[:6] != bytes.fromhex("020900000000"):
             raise ValueError(f"5503/{group}: неизвестный формат ISO-TP; запись отменена")
         for start in (8, 83, 158):

@@ -33,6 +33,17 @@ class ClimateProfileTests(unittest.TestCase):
         data.update(changes)
         self.assertEqual(profile.prepare(data), {})
 
+    def test_unused_isotp_groups_are_accepted(self):
+        data = snapshot()
+        expected = profile.prepare(snapshot())
+        for group in (3, 4, 5):
+            data[f'5503/{group}'] = bytes(233)
+        self.assertEqual(profile.prepare(data), expected)
+        raw = bytearray(233); raw[20] = 1
+        data['5503/5'] = bytes(raw)
+        with self.assertRaisesRegex(ValueError, 'ISO-TP'):
+            profile.prepare(data)
+
     def test_can_and_isotp_collisions(self):
         for mode in ('can', 'duplicate', 'isotp'):
             data = snapshot()

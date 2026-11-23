@@ -75,6 +75,18 @@ class ProfileTests(unittest.TestCase):
             with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, 'занят'):
                 profile.prepare(data, profile.PROFILE)
 
+    def test_unused_isotp_groups_are_accepted(self):
+        # A factory tracker keeps groups 3..5 as 233 zero bytes.
+        data = snapshot()
+        expected = profile.prepare(snapshot(), profile.PROFILE).changes
+        for group in (3, 4, 5):
+            data[f'5503/{group}'] = bytes(233)
+        self.assertEqual(profile.prepare(data, profile.PROFILE).changes, expected)
+        raw = bytearray(233); raw[20] = 1
+        data['5503/5'] = bytes(raw)
+        with self.assertRaisesRegex(ValueError, 'ISO-TP'):
+            profile.prepare(data, profile.PROFILE)
+
     def test_full_tracker_is_rejected(self):
         data = snapshot()
         for i in range(128):
@@ -87,7 +99,8 @@ class ProfileTests(unittest.TestCase):
     def test_missing_soc_unknown_format_bad_crc_and_incomplete_read_fail_closed(self):
         cases = []
         data = snapshot(); data['5500/7'] = profile.empty_slot(); cases.append(data)
-        data = snapshot(); data['5503/0'] = bytes(233); cases.append(data)
+        data = snapshot(); raw = bytearray(data['5503/0']); raw[0] = 3
+        data['5503/0'] = bytes(raw); cases.append(data)
         data = snapshot(); raw = bytearray(data['5500/7']); raw[55] = 11
         data['5500/7'] = profile._crc(raw); cases.append(data)
         data = snapshot(); data['5500/22'] = bytes(84); cases.append(data)
