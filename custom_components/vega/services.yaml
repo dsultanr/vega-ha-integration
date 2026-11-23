@@ -38,6 +38,8 @@ prepare_hv_battery:
           options:
             - value: f515_ispace_4wd
               label: F515 / i-Space 4WD
+            - value: ispace_2025
+              label: i-Space 2025 (не проверено на автомобиле)
 
 configure_hv_battery:
   name: Настроить измерение мощности ВВБ

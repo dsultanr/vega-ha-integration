@@ -1212,7 +1212,7 @@ class VegaRuntime:
 
     async def async_prepare_hv_battery(self, profile: str) -> dict:
         """Read every CAN/ISO-TP slot and retain an opaque, device-bound plan."""
-        if profile != hv_profile.PROFILE:
+        if profile not in hv_profile.PROFILES:
             raise CommandError("Неизвестный профиль автомобиля")
         async with self._scripts_lock:
             self._hv_plan = None
@@ -1273,10 +1273,10 @@ class VegaRuntime:
                 if self.imei != saved["imei"]:
                     raise CommandError("IMEI изменился; повторите проверку")
                 # Rebuild from readback as well as comparing the whole snapshot.
-                hv_profile.prepare(current, hv_profile.PROFILE)
+                hv_profile.prepare(current, plan.profile)
                 if plan.changes:
                     await self._hv_audit({"phase": "backup", "plan_id": plan_id,
-                        "profile": hv_profile.PROFILE,
+                        "profile": plan.profile,
                         "snapshot": {k: v.hex() for k, v in current.items()},
                         "changes": {k: {"before": current[k].hex(), "after": v.hex()}
                                     for k, v in plan.changes.items()}})

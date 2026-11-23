@@ -8,7 +8,7 @@ DOMAIN = "vega"
 
 # Bundled hold-to-confirm Lovelace card (independent of the evolute integration).
 # Bump CARD_VERSION together with the JS so the cache-buster forces a reload.
-CARD_VERSION = "0.3.8"
+CARD_VERSION = "0.3.9"
 PANEL_PATH = "vega-config"
 CARD_FILENAME = "vega-hold-button.js"
 CARD_URL = f"/local/vega/{CARD_FILENAME}"

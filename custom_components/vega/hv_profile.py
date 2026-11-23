@@ -11,6 +11,11 @@ import struct
 
 PROFILE = "f515_ispace_4wd"
 PROFILE_NAME = "F515 / i-Space 4WD"
+# The HV decoders read CAN 0x104, the frame the SoC decoder already uses. A tracker with the
+# ISpace_11092025 CAN profile carries a byte-identical SoC decoder, so the same plan builds for
+# it, but voltage and current have not been checked against that car.
+PROFILE_2025 = "ispace_2025"
+PROFILES = {PROFILE: PROFILE_NAME, PROFILE_2025: "i-Space 2025 (не проверено на автомобиле)"}
 SENSOR_IDS = (2922, 2923)
 PERIOD = bytes.fromhex("00050000")
 READS = ([(5500, slot, 84) for slot in range(128)]
@@ -56,9 +61,10 @@ class Plan:
     changes: dict[str, bytes]
     bus: int
     sensors: list[dict]
+    profile: str = PROFILE
 
     def summary(self) -> dict:
-        return {"profile": PROFILE, "profile_name": PROFILE_NAME,
+        return {"profile": self.profile, "profile_name": PROFILES[self.profile],
                 "configured": not self.changes, "bus": self.bus,
                 "period_seconds": 5, "sensors": self.sensors,
                 "change_count": len(self.changes)}
@@ -75,13 +81,13 @@ def soc_bus(slots: list[bytes]) -> int:
             and soc[55:57] == bytes((10, 0x99))
             and soc[57:81] == struct.pack("<QQff", 0, 1023, 0.1, 0)
             and soc[81:] == bytes(3)):
-        raise ValueError("Датчик SoC не соответствует профилю F515 / i-Space 4WD")
+        raise ValueError("Датчик SoC не соответствует проверенной раскладке CAN 0x104")
     return soc[1]
 
 
 def prepare(snapshot: dict[str, bytes], profile: str) -> Plan:
-    if profile != PROFILE:
-        raise ValueError("Выберите поддерживаемый профиль F515 / i-Space 4WD")
+    if profile not in PROFILES:
+        raise ValueError("Выберите поддерживаемый профиль автомобиля")
     for setting, sub, size in READS:
         key = f"{setting}/{sub}"
         if key not in snapshot or len(snapshot[key]) != size:
@@ -124,4 +130,4 @@ def prepare(snapshot: dict[str, bytes], profile: str) -> Plan:
         key = f"3004/{sid}"
         if snapshot[key] != PERIOD:
             changes[key] = PERIOD
-    return Plan(dict(snapshot), changes, bus, sensors)
+    return Plan(dict(snapshot), changes, bus, sensors, profile)

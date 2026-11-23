@@ -47,7 +47,7 @@ from .const import (
     PANEL_PATH,
 )
 from .coordinator import VegaCoordinator
-from .hv_profile import PROFILE
+from .hv_profile import PROFILE, PROFILES
 from .runtime import VegaRuntime
 
 _LOGGER = logging.getLogger(__name__)
@@ -300,7 +300,7 @@ def _register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, "prepare_hv_battery", _prepare_hv,
-        schema=vol.Schema({vol.Optional("entry_id"): str, vol.Required("profile"): vol.In([PROFILE])}),
+        schema=vol.Schema({vol.Optional("entry_id"): str, vol.Required("profile"): vol.In(list(PROFILES))}),
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(

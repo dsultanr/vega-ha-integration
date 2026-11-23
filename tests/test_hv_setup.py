@@ -87,6 +87,18 @@ class ProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'ISO-TP'):
             profile.prepare(data, profile.PROFILE)
 
+    def test_second_profile_builds_the_same_plan_and_keeps_its_name(self):
+        first = profile.prepare(snapshot(), profile.PROFILE)
+        second = profile.prepare(snapshot(), profile.PROFILE_2025)
+        self.assertEqual(second.changes, first.changes)
+        self.assertEqual(second.summary()['profile'], profile.PROFILE_2025)
+        self.assertEqual(first.summary()['profile_name'], profile.PROFILE_NAME)
+        with self.assertRaisesRegex(ValueError, 'профиль'):
+            profile.prepare(snapshot(), 'other')
+        # The climate form stays limited to the tested vehicle.
+        with self.assertRaises(ValueError):
+            runtime_module.climate_profile.check_firmware(profile.PROFILE_2025, runtime_module.climate_profile.VERIFIED_FIRMWARE)
+
     def test_full_tracker_is_rejected(self):
         data = snapshot()
         for i in range(128):

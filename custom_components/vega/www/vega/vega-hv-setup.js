@@ -37,6 +37,7 @@ class VegaHvSetup extends HTMLElement {
         <select id="hv-profile">
           <option value="">Выберите профиль</option>
           <option value="f515_ispace_4wd">F515 / i-Space 4WD</option>
+          <option value="ispace_2025">i-Space 2025 (не проверено на автомобиле)</option>
         </select>
         <p class="hint">Сначала проверим совместимость и свободное место в настройках трекера.
           Для проверки и настройки нужно соединение Vega Binary.</p>
