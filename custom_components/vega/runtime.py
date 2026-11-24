@@ -849,6 +849,12 @@ class VegaRuntime:
         so telemetry already appears during onboarding.
         """
         peer = writer.get_extra_info("peername")
+        if getattr(self._inject_session, "is_cloud_relay", False):
+            # The cloudru relay owns the authenticated S4 session, so the tracker
+            # is not connecting here. Taking over would close the relay channel.
+            _LOGGER.debug("Vega proxy: cloud relay owns S4, dropping %s", peer)
+            writer.close()
+            return
         if not self.upstream:
             _LOGGER.warning("Vega proxy: no upstream configured, draining %s", peer)
             try:

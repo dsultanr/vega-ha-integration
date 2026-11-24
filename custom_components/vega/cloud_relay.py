@@ -11,6 +11,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class RemoteSession:
+    is_cloud_relay = True
+
     def __init__(self, channel, runtime):
         self.channel, self.runtime = channel, runtime
         self.writer = channel.writer

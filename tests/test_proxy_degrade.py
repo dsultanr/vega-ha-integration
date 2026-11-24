@@ -134,6 +134,24 @@ class RawRelayTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('c2t',seen)
             await asyncio.gather(*tasks,return_exceptions=True)
 
+class CloudRelayOwnershipTests(unittest.IsolatedAsyncioTestCase):
+    async def test_foreign_connection_does_not_close_cloud_relay(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            rt = _runtime(tmp, direct_control=True)
+            class Relay:
+                is_cloud_relay = True
+                def __init__(self):self.writer=_Writer()
+            relay=Relay();rt._inject_session=relay
+            foreign=_Writer();foreign.get_extra_info=lambda name:('scanner',1)
+            async def connect(*args):raise AssertionError('upstream must not be opened')
+            with patch.object(runtime_module.asyncio,'open_connection',side_effect=connect):
+                await rt._handle_vega_proxy(None,foreign,b'GET /')
+            self.assertTrue(foreign.closed)
+            self.assertFalse(relay.writer.closed)
+            self.assertIs(rt._inject_session,relay)
+
+
 class ServerSlotReadTests(unittest.IsolatedAsyncioTestCase):
     async def test_reads_four_slots_without_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
