@@ -214,3 +214,140 @@ class CommandSaveTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Scenarios of the factory ISpace_11092025 profile (ISpace_09072025 has the same ones): the same
+# scripts in the same slots, started by other settings than on ISpace_4wd.
+SCENARIOS_2025 = {i: bytes(50) for i in range(25)}
+SCENARIOS_2025.update({i: bytes.fromhex(h) for i, h in {
+    0: "e40433333b4100013e050000000001000000000000000000000000000000000000000000000000000000010f000000000000",
+    1: "3f05000000000100000000000000000000000000000000000000000000000000000000000000000000000500000000000000",
+    2: "3f050000803f0000000000000000000000000000000000000000000000000000000000000000000000000000050000000000",
+    3: "4205000000000100000000000000000000000000000000000000000000000000000000000000000000000303000000000000",
+    4: "4205000000000100000000000000000000000000000000000000000000000000000000000000000000000601000000000004",
+    5: "4305000000000100000000000000000000000000000000000000000000000000000000000000000000000303000000000000",
+    6: "4305000000000100000000000000000000000000000000000000000000000000000000000000000000000701000000000008",
+    7: "4405000000000100000000000000000000000000000000000000000000000000000000000000000000000303000000000018",
+    8: "4405000000000100000000000000000000000000000000000000000000000000000000000000000000000803000000000000",
+    9: "4405000000000100000000000000000000000000000000000000000000000000000000000000000000000701000000000000",
+    10: "4505000000000100000000000000000000000000000000000000000000000000000000000000000000000303000000000000",
+    11: "4505000000000100000000000000000000000000000000000000000000000000000000000000000000000901000000000020",
+    12: "e404000010410000000000000000000000000000000000000000000000000000000000000000000000000000010000000000",
+}.items()})
+
+
+class CommandResolutionTests(unittest.TestCase):
+    """The setting a button writes comes from the tracker's scenarios, not from a fixed table."""
+
+    def test_4wd_tracker_keeps_the_table_numbers(self):
+        scenarios = [protocol.decode_scenario(raw, i) for i, raw in SCENARIOS.items()]
+        resolved = protocol.resolve_commands(scenarios)
+        for action, spec in protocol.COMMAND_MAP.items():
+            with self.subTest(action=action):
+                self.assertEqual((resolved[action]["setting_id"], resolved[action]["val"]), (spec["setting_id"], spec["val"]))
+
+    def test_2025_profile_uses_its_own_numbers(self):
+        scenarios = [protocol.decode_scenario(raw, i) for i, raw in SCENARIOS_2025.items()]
+        resolved = protocol.resolve_commands(scenarios)
+        self.assertEqual({a: resolved[a].get("setting_id") for a in ("lock", "unlock", "horn")},
+                         {"lock": 1346, "unlock": 1347, "horn": 1349})
+        self.assertTrue(all(resolved[a]["val"] == 1 and resolved[a]["source"] == "scenario" for a in ("lock", "unlock", "horn")))
+        # 1346/1347 lock and unlock here, so the climate buttons must not send them.
+        self.assertIn("Закрыть ЦЗ", resolved["cooling"]["error"])
+        self.assertIn("Открыть ЦЗ", resolved["preheat"]["error"])
+        # Nothing listens to 1341 on this profile.
+        for action in ("remote_on", "remote_off", "cooling_off", "preheat_off"):
+            self.assertIn("1341", resolved[action]["error"])
+        bindings = protocol.command_script_bindings(scenarios)
+        self.assertEqual((bindings["lock"]["setting_id"], bindings["lock"]["slots"], bindings["lock"]["status"]), (1346, [0], "single"))
+        self.assertEqual((bindings["horn"]["setting_id"], bindings["horn"]["slots"], bindings["horn"]["table_setting_id"]), (1349, [7], 1348))
+        self.assertEqual((bindings["cooling"]["resolved"], bindings["cooling"]["slots"], bindings["cooling"]["status"]), (False, [], "none"))
+
+    def test_rebound_button_on_a_4wd_tracker_still_sends_its_number(self):
+        raws = dict(SCENARIOS)
+        unlock = bytearray(raws[9]); unlock[49] = 4 * (3 + 1); raws[9] = bytes(unlock)   # 1350 now runs slot 3
+        resolved = protocol.resolve_commands([protocol.decode_scenario(raw, i) for i, raw in raws.items()])
+        self.assertEqual((resolved["unlock"]["setting_id"], resolved["unlock"]["source"]), (1350, "table"))
+
+    def test_unread_or_ambiguous_scenarios_resolve_nothing(self):
+        scenarios = [protocol.decode_scenario(raw, i) for i, raw in SCENARIOS.items()]
+        self.assertTrue(all("error" in r for r in protocol.resolve_commands(scenarios[:-1]).values()))
+        self.assertTrue(all("error" in r for r in protocol.resolve_commands([]).values()))
+        raws = dict(SCENARIOS_2025)
+        extra = bytearray(raws[4]); struct.pack_into("<H", extra, 0, 1351); raws[13] = bytes(extra)   # slot 0 by 1346 and 1351
+        resolved = protocol.resolve_commands([protocol.decode_scenario(raw, i) for i, raw in raws.items()])
+        self.assertIn("несколько команд", resolved["lock"]["error"])
+
+
+class CommandSendTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        async def executor(fn, *args): return fn(*args)
+        hass = types.SimpleNamespace(config=types.SimpleNamespace(path=lambda *p: str(Path(self.temp.name, *p))),
+                                     async_add_executor_job=executor)
+        self.runtime = VegaRuntime(hass, "test", 21443, "0000", "0000", 30, direct_control=True)
+        self.session = FakeSession()
+        async def set_setting(sid, sub, data):
+            self.session.writes.append((sid, sub, data)); return {"success": True}
+        self.session.set_setting = set_setting
+        self.runtime._inject_session = self.session
+
+    async def test_first_enable_reads_once_then_commands_use_the_trackers_numbers(self):
+        self.session.settings.update({(4001, i): raw for i, raw in SCENARIOS_2025.items()})
+        # Nothing is read by a button press: without scenarios the command is refused.
+        with self.assertRaisesRegex(CommandError, "Сценарии трекера не прочитаны.*Прочитать из трекера"):
+            await self.runtime.async_send_command("lock")
+        self.assertEqual((self.session.reads, self.session.writes), ([], []))
+        self.assertTrue(await self.runtime.async_prime_command_scenarios(attempts=1))
+        self.assertEqual(self.session.reads, [(4001, i) for i in range(25)])
+        await self.runtime.async_send_command("lock")
+        await self.runtime.async_send_command("horn")
+        self.assertEqual(self.session.writes, [(1346, 0, b"\x01"), (1349, 0, b"\x01")])
+        self.assertEqual(len(self.session.reads), 25)                      # commands never read
+        self.assertTrue(await self.runtime.async_prime_command_scenarios(attempts=1))
+        self.assertEqual(len(self.session.reads), 25)                      # already known: not read again
+        with self.assertRaisesRegex(CommandError, "Охлаждение.*недоступна.*Закрыть ЦЗ"):
+            await self.runtime.async_send_command("cooling")
+        with self.assertRaisesRegex(CommandError, "недоступна"):
+            await self.runtime.async_send_command("remote_on")
+        self.assertEqual(len(self.session.writes), 2)
+        self.assertEqual(self.runtime.command_bindings["lock"]["setting_id"], 1346)
+
+    async def test_scenarios_survive_a_restart_and_follow_read_from_tracker(self):
+        await self.runtime.async_prime_command_scenarios(attempts=1)        # 4WD fixtures
+        self.runtime.load_scripts()                                         # as after a restart
+        self.assertEqual(len(self.runtime._command_scenarios), 25)
+        self.session.reads.clear()
+        await self.runtime.async_send_command("lock")
+        self.assertEqual((self.session.reads, self.session.writes), ([], [(1349, 0, b"\x01")]))
+        # The profile was changed outside HA; "Прочитать из трекера" picks the new numbers up.
+        self.session.settings.update({(4001, i): raw for i, raw in SCENARIOS_2025.items()})
+        await self.runtime.async_send_command("lock")
+        self.assertEqual(self.session.writes[-1], (1349, 0, b"\x01"))      # still the saved state
+        await self.runtime.async_read_can_scripts()
+        await self.runtime.async_send_command("lock")
+        self.assertEqual(self.session.writes[-1], (1346, 0, b"\x01"))
+
+    async def test_failed_read_keeps_buttons_and_unconfirmed_scenario_write_blocks_them(self):
+        await self.runtime.async_prime_command_scenarios(attempts=1)
+        del self.session.settings[4001, 7]
+        await self.runtime.async_read_can_scripts()                         # scenarios unreadable now
+        await self.runtime.async_send_command("lock")                       # tracker unchanged: still allowed
+        self.assertEqual(self.session.writes, [(1349, 0, b"\x01")])
+        self.runtime._scenario_write_pending = True                         # a 4001 write went out...
+        self.runtime._scenario_read_at = None                               # ...and was not confirmed
+        await self.runtime._persist_scenarios()
+        with self.assertRaisesRegex(CommandError, "не прочитаны"):
+            await self.runtime.async_send_command("lock")
+        self.runtime.load_scripts()
+        self.assertEqual(self.runtime._command_scenarios, [])
+
+    async def test_first_enable_without_a_session_or_with_direct_control_off_reads_nothing(self):
+        self.runtime._inject_session = None
+        with patch.object(runtime_module.asyncio, "sleep", new=AsyncMock()):
+            self.assertFalse(await self.runtime.async_prime_command_scenarios(attempts=2))
+        self.runtime._inject_session = self.session
+        self.runtime.direct_control = False
+        self.assertFalse(await self.runtime.async_prime_command_scenarios(attempts=1))
+        self.assertEqual(self.session.reads, [])

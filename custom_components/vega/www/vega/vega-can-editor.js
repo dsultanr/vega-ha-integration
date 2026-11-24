@@ -713,7 +713,10 @@ class VegaCanEditor extends HTMLElement {
         const s = scenarios.find(s => s.index === index);
         return s ? `Сценарий ${index}: ${scenarioSummary(s)}` : "";
       });
-      append(title, `Команда HA: ${b.setting_id}=${b.value}. ${details.join(" · ") || (fresh ? "Связанных сценариев нет" : "Сценарии ещё не прочитаны")}`, indices, action);
+      const sent = b.error && fresh
+        ? `Кнопка недоступна: ${b.error}.`
+        : `Команда HA: ${b.setting_id}=${b.value}${b.table_setting_id && b.table_setting_id !== b.setting_id ? " (по сценариям трекера; обычно " + b.table_setting_id + ")" : ""}.`;
+      append(title, `${sent} ${details.join(" · ") || (fresh ? "Связанных сценариев нет" : "Сценарии ещё не прочитаны")}`, indices, action);
     }
   }
 

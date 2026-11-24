@@ -110,6 +110,7 @@ class VegaButton(CoordinatorEntity, ButtonEntity):
             "pending": self._pending,
             "blocked": self.coordinator.is_command_blocked(self._action),
             "script_binding": self.coordinator.runtime.command_bindings[self._action],
+            "sends": self.coordinator.runtime.command_resolution[self._action],
         }
         reason = self.coordinator.command_block_reason(self._action)
         if reason:

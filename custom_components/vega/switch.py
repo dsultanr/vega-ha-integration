@@ -87,6 +87,8 @@ class VegaSwitch(CoordinatorEntity, SwitchEntity):
     async def _set(self, value: bool) -> None:
         if self._key == "direct_control":
             self.coordinator.runtime.direct_control = value
+            if value:   # first time on this tracker: learn which setting runs which script
+                self.hass.async_create_task(self.coordinator.runtime.async_prime_command_scenarios())
         elif self._key == "proxy_mode":
             self.coordinator.runtime.proxy_mode = value
 

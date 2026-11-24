@@ -416,6 +416,10 @@ class VegaRuntime:
         self._scripts_lock = asyncio.Lock()
         self._scenarios: list[dict] = []
         self._scenario_read_at: str | None = None
+        # Scenarios the buttons resolve their command numbers from: the last complete, verified state.
+        # Read when direct control is first switched on and by "Прочитать из трекера"; kept across restarts.
+        self._command_scenarios: list[dict] = []
+        self._scenario_write_pending = False
         self._filecap = _FileCapture(hass)  # firmware/file-transfer catcher (proxy path)
 
     @property
@@ -1438,6 +1442,11 @@ class VegaRuntime:
         return protocol.command_script_bindings(self._scenarios if self._scenario_read_at else [])
 
     @property
+    def command_resolution(self) -> dict:
+        """What each button will write, from the saved scenarios; the editor's bindings need a fresh read."""
+        return protocol.resolve_commands(self._command_scenarios)
+
+    @property
     def scenario_read_at(self) -> str | None:
         return self._scenario_read_at
 
@@ -1456,6 +1465,16 @@ class VegaRuntime:
         self._slot_names = {}
         self._scenarios = []
         self._scenario_read_at = None
+        self._command_scenarios = []
+        try:
+            with open(self._command_scenarios_path(), encoding="utf-8") as f:
+                saved = json.load(f)["scenarios"]
+            if len(saved) == protocol.SCENARIO_COUNT:
+                self._command_scenarios = [protocol.decode_scenario(bytes.fromhex(raw), index) for index, raw in enumerate(saved)]
+        except FileNotFoundError:
+            pass
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Vega: saved command scenarios are unusable, read them from the tracker: %s", err)
         self._load_climate_profile()
         try:
             path = self._scripts_path()
@@ -1609,15 +1628,34 @@ class VegaRuntime:
             self._publish()
             return self._can_scripts
 
+    def _command_scenarios_path(self) -> str:
+        return self.hass.config.path("vega", f"command_scenarios_{self.imei}.json")
+
     async def _persist_scenarios(self) -> None:
         path = self.hass.config.path("vega", f"scenarios_{self.imei}.json")
         data = self._scenarios
+        # Buttons trust only a complete state confirmed by a read or a verified write. After an
+        # uncertain write the bindings are unknown, so buttons stay blocked until the next read.
+        # A failed read changes nothing on the tracker, so it leaves the buttons as they were.
+        trusted = bool(self._scenario_read_at) and len(data) == protocol.SCENARIO_COUNT
+        if trusted:
+            self._command_scenarios, self._scenario_write_pending = list(data), False
+        elif self._scenario_write_pending:
+            self._command_scenarios = []
+        commands_path = self._command_scenarios_path()
+        commands = None if not trusted and not self._scenario_write_pending else {
+            "read_at": self._scenario_read_at if trusted else None,
+            "scenarios": [s["raw"] for s in sorted(data, key=lambda s: s["index"])] if trusted else []}
 
         def write():
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path + ".tmp", "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             os.replace(path + ".tmp", path)
+            if commands is not None:
+                with open(commands_path + ".tmp", "w", encoding="utf-8") as f:
+                    json.dump(commands, f)
+                os.replace(commands_path + ".tmp", commands_path)
 
         try:
             await self.hass.async_add_executor_job(write)
@@ -1758,6 +1796,8 @@ class VegaRuntime:
                         raise CommandError("Direct Control выключен; дальнейшая запись отменена")
                     attempted = key
                     try:
+                        if setting == 4001:
+                            self._scenario_write_pending = True   # until a confirmed state is saved
                         await session.set_setting(setting, index, desired)
                     except (OSError, asyncio.TimeoutError):
                         pass  # A lost ACK can still accompany a successful write.
@@ -1949,6 +1989,8 @@ class VegaRuntime:
                         raise CommandError("Direct Control выключен; дальнейшая запись отменена")
                     attempted = key
                     try:
+                        if setting == 4001:
+                            self._scenario_write_pending = True   # until a confirmed state is saved
                         await session.set_setting(setting, index, desired)
                     except (OSError, asyncio.TimeoutError):
                         pass  # A lost ACK can still accompany a successful write.
@@ -2064,6 +2106,33 @@ class VegaRuntime:
             _LOGGER.info("Vega: slot %s write verified (82 bytes)", slot)
             return {"slot": slot, "verified": True, "unchanged": False}
 
+    async def async_prime_command_scenarios(self, attempts: int = 12, delay: float = 10.0) -> bool:
+        """Read the scenarios once when direct control is first switched on.
+
+        Does nothing when they are already known. The tracker session may appear a little after the
+        switch, so a few attempts are made; after that "Прочитать из трекера" is the way.
+        """
+        for attempt in range(attempts):
+            if self._command_scenarios or not self.direct_control:
+                return bool(self._command_scenarios)
+            session = self._inject_session or self._active_vega_session()
+            if session is not None:
+                try:
+                    async with self._scripts_lock:
+                        scenarios = []
+                        for index in range(protocol.SCENARIO_COUNT):
+                            scenarios.append(protocol.decode_scenario(await self._read_setting(session, 4001, index, 50), index))
+                        self._scenarios = scenarios
+                        self._scenario_read_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                        await self._persist_scenarios()
+                        self._publish()
+                    return True
+                except (CommandError, ValueError, OSError, asyncio.TimeoutError) as err:
+                    _LOGGER.warning("Vega: scenarios not read after enabling direct control: %s", err)
+            if attempt + 1 < attempts:
+                await asyncio.sleep(delay)
+        return False
+
     async def async_send_command(self, action: str) -> dict:
         if not self.direct_control:
             raise CommandError("Direct control is off; enable the 'Direct control' switch first.")
@@ -2076,6 +2145,15 @@ class VegaRuntime:
         if session is None:
             raise CommandError("Vehicle is offline (no active Vega session)")
 
+        # The number to write comes from this tracker's scenarios, never from the table alone:
+        # factory profiles of different vehicles bind the same buttons to different settings.
+        # Nothing is read here: a command must not wait for 25 records.
+        if not self._command_scenarios:
+            raise CommandError("Сценарии трекера не прочитаны: откройте редактор команд и нажмите «Прочитать из трекера»")
+        chosen = protocol.resolve_commands(self._command_scenarios)[action]
+        if "error" in chosen:
+            raise CommandError(f"Команда «{protocol.COMMAND_TITLES.get(action, action)}» недоступна: {chosen['error']}")
+        spec = {**spec, **chosen}
         sid, sub, val = spec["setting_id"], spec["sub_id"], bytes([spec["val"]])
         # The car reacts to a 0->1 edge, not a level. If 1341 is already armed the
         # command is accepted (res=0) yet silently ignored, so pre-clear it.

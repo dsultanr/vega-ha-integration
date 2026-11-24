@@ -643,15 +643,91 @@ def build_scenario_from_dict(spec: dict, original: bytes) -> bytes:
     return bytes(buf)
 
 
+# Which stock script each button stands for. The slot order is the same in every factory profile
+# seen so far (ISpace_4wd, ISpace_11092025, ISpace_09072025); the setting that starts it is not:
+# "в охрану" is run by 1349 on ISpace_4wd and by 1346 on the 2025 profiles, where 1349 sounds the horn.
+COMMAND_SLOTS = {"lock": 0, "unlock": 1, "cooling": 2, "preheat": 4, "horn": 7}
+COMMAND_TITLES = {"lock": "Закрыть ЦЗ", "unlock": "Открыть ЦЗ", "cooling": "Охлаждение", "preheat": "Прогрев",
+                  "horn": "Гудок", "cooling_off": "Выключить охлаждение", "preheat_off": "Выключить прогрев",
+                  "remote_on": "Remote ON", "remote_off": "Remote OFF"}
+_COMMAND_SETTINGS = range(1341, 1356)  # the tracker's virtual outputs
+
+
+def _scenarios_complete(scenarios: list[dict]) -> bool:
+    return len(scenarios) == SCENARIO_COUNT and {s["index"] for s in scenarios} == set(range(SCENARIO_COUNT))
+
+
+def _trigger_value(condition: dict) -> int | None:
+    """Value to write so that the condition fires; None when it cannot be told."""
+    threshold = condition["threshold"]
+    if condition["comparison"] == 0:      # became equal
+        value = int(threshold) if threshold == int(threshold) else None
+    elif condition["comparison"] == 1:    # became greater
+        value = math.floor(threshold) + 1
+    else:                                 # changed
+        value = 1
+    return value if value is not None and 0 < value <= 255 else None
+
+
+def resolve_commands(scenarios: list[dict]) -> dict:
+    """Setting to write for every button, taken from the tracker's own scenarios.
+
+    Per action either {"setting_id", "sub_id", "val", "source"} or {"error": text}. Nothing is
+    guessed: a button whose script no scenario starts is unavailable, and the table number is not
+    sent when the tracker uses it for another button.
+    """
+    if not _scenarios_complete(scenarios):
+        return {action: {"error": "Сценарии трекера не прочитаны"} for action in COMMAND_MAP}
+    referenced = set()
+    by_slot: dict[int, dict[int, int]] = {}
+    for scenario in scenarios:
+        for condition in scenario["conditions"]:
+            if condition["sensor"] not in _COMMAND_SETTINGS:
+                continue
+            referenced.add(condition["sensor"])
+            value = _trigger_value(condition)
+            if scenario["slot"] is not None and value is not None:
+                by_slot.setdefault(scenario["slot"], {}).setdefault(condition["sensor"], value)
+    result: dict[str, dict] = {}
+    for action, slot in COMMAND_SLOTS.items():      # the scenario that runs the button's own script wins
+        spec, starters = COMMAND_MAP[action], by_slot.get(slot, {})
+        if spec["setting_id"] in starters:
+            result[action] = {"setting_id": spec["setting_id"], "sub_id": 0, "val": spec["val"], "source": "table"}
+        elif len(starters) == 1:
+            setting, value = next(iter(starters.items()))
+            result[action] = {"setting_id": setting, "sub_id": 0, "val": value, "source": "scenario"}
+        elif starters:
+            result[action] = {"error": f"скрипт слота {slot} запускают несколько команд: {sorted(starters)}"}
+    claimed = {r["setting_id"]: action for action, r in result.items() if "setting_id" in r}
+    for action, spec in COMMAND_MAP.items():
+        if action in result:
+            continue
+        setting = spec["setting_id"]
+        if setting in claimed:
+            result[action] = {"error": f"на этом трекере команда {setting} запускает «{COMMAND_TITLES[claimed[setting]]}»"}
+        elif setting in referenced:
+            # The tracker's scenarios listen to this number, e.g. a button rebound to another script.
+            result[action] = {"setting_id": setting, "sub_id": 0, "val": spec["val"], "source": "table"}
+        elif action in COMMAND_SLOTS:
+            result[action] = {"error": f"в сценариях трекера нет запуска скрипта слота {COMMAND_SLOTS[action]}"}
+        else:
+            result[action] = {"error": f"сценарии трекера не используют команду {setting}"}
+    return result
+
+
 def command_script_bindings(scenarios: list[dict]) -> dict:
     """Resolve configured event routes, without claiming physical execution.
 
     A partial read cannot establish absence/uniqueness of a route. An AND
     condition on another sensor is conditional, even if the command matches.
+    setting_id/value are what the button will send; "error" says why it will not.
     """
-    complete = len(scenarios) == SCENARIO_COUNT and {s["index"] for s in scenarios} == set(range(SCENARIO_COUNT))
+    complete = _scenarios_complete(scenarios)
+    resolved = resolve_commands(scenarios)
     result = {}
-    for action, spec in COMMAND_MAP.items():
+    for action, table in COMMAND_MAP.items():
+        chosen = resolved[action]
+        spec = {"setting_id": chosen["setting_id"], "val": chosen["val"]} if "setting_id" in chosen else table
         routes = []
         scenario_routes = []
         for scenario in scenarios:
@@ -675,9 +751,13 @@ def command_script_bindings(scenarios: list[dict]) -> dict:
             "conditional" if any(r["conditional"] for r in routes) else
             "multiple" if len(slots) > 1 else "single" if slots else "none"
         )
+        if "error" in chosen and complete:   # the table number is shown for reference only; it is not sent
+            routes, slots, scenario_routes, status = [], [], [], "none"
         result[action] = {"setting_id": spec["setting_id"], "value": spec["val"],
                           "status": status, "slots": slots, "routes": routes,
-                          "scenario_routes": scenario_routes}
+                          "scenario_routes": scenario_routes,
+                          "resolved": "setting_id" in chosen, "error": chosen.get("error"),
+                          "table_setting_id": table["setting_id"]}
     return result
 
 

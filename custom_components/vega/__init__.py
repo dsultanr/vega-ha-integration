@@ -209,6 +209,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await coordinator.async_config_entry_first_refresh()
 
+    # An install that already runs with direct control on never "switches it on", so it would have
+    # no scenarios to resolve buttons from. Learn them once; later starts find them saved and read nothing.
+    if runtime.direct_control:
+        background = getattr(hass, "async_create_background_task", None)
+        prime = runtime.async_prime_command_scenarios(attempts=30)
+        background(prime, "vega_prime_command_scenarios") if background else hass.async_create_task(prime)
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
