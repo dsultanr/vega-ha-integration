@@ -68,6 +68,8 @@ class VegaScriptsSensor(CoordinatorEntity, SensorEntity):
                 "scenarios": runtime.scenarios,
                 "command_bindings": runtime.command_bindings,
                 "scenarios_read_at": runtime.scenario_read_at,
+                "profile_read": runtime.profile_read,
+                "tracker_info": runtime.tracker_info,
                 "hv_setup": runtime.hv_setup, "direct_control": runtime.direct_control,
                 "climate_profile": runtime.climate_profile,
                 "climate_check": runtime.climate_check}

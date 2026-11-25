@@ -107,7 +107,7 @@ write_can_script:
 
 read_commands:
   name: Read commands and scenarios
-  description: Read eight CAN slots and 25 scenarios, including conditions and external output actions, into the CAN Scripts sensor attributes.
+  description: Read eight CAN slots and 25 scenarios, including conditions and external output actions, into the CAN Scripts sensor attributes, plus the CAN profile name and the MCU firmware version.
   fields:
     entry_id:
       name: Integration entry ID
@@ -212,6 +212,22 @@ backup_commands:
       description: Необязательная подпись копии, до 120 символов.
       selector:
         text:
+
+backup_profile:
+  name: Сохранить полную копию профиля (.vsf)
+  description: Прочитать из трекера все настройки, которые сохраняет Vega Конфигуратор, и записать их файлом .vsf в /config/vega/profile_backups_<IMEI>/. Формат файла — как у Конфигуратора 1.28.46. Чтение занимает несколько минут, ход — в атрибуте profile_read сенсора CAN Scripts; команды автомобилю из HA в это время могут быть отклонены. Если профиль не изменился с последней копии, новый файл не создаётся. Трекер не изменяется.
+  fields:
+    entry_id:
+      name: Интеграция Vega
+      description: Обязательно, если настроено несколько трекеров.
+      selector:
+        text:
+    include_secrets:
+      name: С паролями
+      description: Добавить пароль устройства и PIN-коды серверов (3255) и идентификатор 5504. Конфигуратор сохраняет их всегда; здесь по умолчанию они в файл не попадают.
+      default: false
+      selector:
+        boolean:
 
 list_command_backups:
   name: Список резервных копий сценариев

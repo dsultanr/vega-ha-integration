@@ -407,6 +407,11 @@ class VegaCanEditor extends HTMLElement {
           <div class="backup-new"><input id="backup-note" maxlength="120" placeholder="Примечание (необязательно)" aria-label="Примечание к копии"><button class="btn" id="backup-create">Сохранить копию из трекера</button></div>
           <div class="hint">Восстановление записывает в трекер только отличающиеся записи и проверяет каждую чтением. Текущее состояние перед этим сохраняется отдельной копией. Нужен Direct Control.</div>
           <div id="backup-list"><div class="hint">Загружаю список…</div></div>
+          <div class="hint">Полная копия профиля — все настройки трекера (около 960 записей) одним файлом .vsf в формате Vega Конфигуратора, в /config/vega/profile_backups_&lt;IMEI&gt;/. <b>Чтение занимает несколько минут</b>; в это время редактор занят, а команды автомобилю из Home Assistant могут быть отклонены. Трекер не изменяется.</div>
+          <div class="profile-new"><label><input type="checkbox" id="profile-secrets"> С паролем устройства и PIN-кодами серверов</label>
+            <button class="btn sec" id="profile-backup">Создать полную копию профиля (.vsf)</button>
+            <span id="profile-confirm" style="display:none">Это несколько минут. <button class="btn" id="profile-yes">Начать</button> <button class="btn sec" id="profile-no">Отмена</button></span></div>
+          <div class="hint" id="profile-result" role="status"></div>
           <div class="error" id="editor-error" role="alert"></div>
         </div>
         <div class="modal-footer"><button class="btn sec" id="close-btn">Закрыть</button></div>
@@ -416,6 +421,10 @@ class VegaCanEditor extends HTMLElement {
     this.querySelector('#close-x').addEventListener('click', close);
     this.querySelector('#backdrop').addEventListener('click', e => { if (e.target.id === 'backdrop') close(); });
     this.querySelector('#backup-create').addEventListener('click', () => this._createBackup());
+    this.querySelector('#profile-backup').addEventListener('click', () => this._askProfileBackup(true));
+    this.querySelector('#profile-yes').addEventListener('click', () => this._backupProfile());
+    this.querySelector('#profile-no').addEventListener('click', () => this._askProfileBackup(false));
+    this._showProfileRead();
     return this._loadBackups();
   }
 
@@ -511,6 +520,54 @@ class VegaCanEditor extends HTMLElement {
     }
   }
 
+  // CAN profile name and firmware, as read together with the commands.
+  _showTrackerInfo() {
+    const info = this._attributes().tracker_info || {};
+    const parts = [info.can_profile && `CAN-профиль ${info.can_profile}`, info.firmware && `прошивка ${info.firmware}`].filter(Boolean);
+    this.querySelector("#tracker-info").textContent = parts.join(' · ');
+  }
+
+  // Progress and outcome of the full profile copy; lives in the backups dialog.
+  _showProfileRead() {
+    const result = this.querySelector('#profile-result');
+    if (!result) return;
+    const state = this._attributes().profile_read || {};
+    const button = this.querySelector('#profile-backup');
+    if (state.active) {
+      if (this._saving === 'profile') button.textContent = `Читаю профиль: ${state.percent || 0} %`;
+      result.textContent = `Читаю профиль: ${state.percent || 0} %, записей ${state.records || 0}`;
+    } else if (state.error) result.textContent = state.error;
+    else if (state.file) result.textContent = `Профиль${state.profile ? ` ${state.profile}` : ''}: ${state.records} записей${state.includes_secrets ? ', с паролями' : ''}, ${state.unchanged ? 'не изменился с копии' : 'копия'} ${state.file} (${this._backupDate(state.time)})`;
+    else result.textContent = '';
+  }
+
+  _askProfileBackup(ask) {
+    if (this._saving) return;
+    this.querySelector('#profile-confirm').style.display = ask ? '' : 'none';
+    this.querySelector('#profile-backup').style.display = ask ? 'none' : '';
+  }
+
+  async _backupProfile() {
+    if (this._saving) return;
+    this._askProfileBackup(false);
+    const button = this.querySelector('#profile-backup'), error = this.querySelector('#editor-error');
+    this._saving = 'profile';
+    button.disabled = true;
+    button.textContent = 'Читаю профиль: 0 %';
+    error.textContent = '';
+    try {
+      const response = await this._call('backup_profile', {include_secrets: !!this.querySelector('#profile-secrets').checked, entry_id: this._editorEntryId});
+      if (!response?.file) throw new Error('Подтверждение сохранения не получено');
+      this._toast(response.unchanged ? `Профиль не изменился с копии ${response.file}` : `Копия профиля сохранена: ${response.file}`);
+    } catch (e) { error.textContent = `Профиль не сохранён: ${e.message || e}`; }
+    finally {
+      this._saving = false;
+      button.disabled = false;
+      button.textContent = 'Создать полную копию профиля (.vsf)';
+      this._showProfileRead();
+    }
+  }
+
   _build() {
     this.innerHTML = `
       <ha-card header="Команды Vega">
@@ -540,6 +597,9 @@ class VegaCanEditor extends HTMLElement {
           .tabs { display:flex; gap:6px; padding:4px 16px 12px; flex-wrap:wrap; }
           .tabs [aria-selected="true"] { background:var(--primary-color); color:white; }
           .backup-new { display:flex; gap:8px; flex-wrap:wrap; }
+          #tracker-info { padding:0 16px; }
+          .profile-new { display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+          #profile-result { word-break:break-all; }
           .backup-new input { flex:1; min-width:180px; min-height:36px; box-sizing:border-box; padding:6px 10px; border-radius:8px; font:inherit;
                               border:1px solid var(--divider-color, #555); background:var(--card-background-color, #252525); color:var(--primary-text-color, #eee); }
           .preview { padding:10px; background:var(--secondary-background-color); border-radius:8px; font-size:13px; }
@@ -619,6 +679,7 @@ class VegaCanEditor extends HTMLElement {
           <button class="btn sec" id="backups">Резервные копии</button>
           <span class="hint">Запись требует включённого Direct Control.</span>
         </div>
+        <div class="hint" id="tracker-info"></div>
         <div class="tabs" role="tablist">
           <button class="btn sec" id="tab-commands" role="tab">Команды</button>
           <button class="btn sec" id="tab-scenarios" role="tab">Все сценарии</button>
@@ -640,6 +701,8 @@ class VegaCanEditor extends HTMLElement {
 
   _update() {
     if (!this._rendered) return;
+    this._showTrackerInfo();
+    this._showProfileRead();
     const slots = this._slots();
     const sig = JSON.stringify([this._view, slots, this._scenarios(), this._attributes().command_bindings, this._attributes().scenarios_read_at]);
     if (sig === this._sig) return;

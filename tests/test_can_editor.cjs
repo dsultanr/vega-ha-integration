@@ -141,6 +141,66 @@ test('read distinguishes scripts from unavailable scenario bindings', async () =
   assert.equal(e.querySelector('#read').disabled, false);
 });
 
+test('read shows the CAN profile and firmware and starts no profile copy', async () => {
+  const {e, calls} = editor();
+  e._hass.callWS = async msg => {
+    calls.push(msg);
+    e._attributes().tracker_info = {can_profile: 'ISpace_4wd', firmware: "VEGA MT X CAN LTE v5 0.10b rc41.56 'ISp4WD'"};
+    return {response: {slots: 8, scenarios_read: true}};
+  };
+  await e._read();
+  e._update();
+  assert.deepEqual(calls.map(c => c.service), ['read_commands']);
+  assert.equal(e.querySelector('#tracker-info').textContent, "CAN-профиль ISpace_4wd · прошивка VEGA MT X CAN LTE v5 0.10b rc41.56 'ISp4WD'");
+});
+
+test('full profile copy asks first, shows progress and reports the file', async () => {
+  const {e, calls} = editor();
+  const attrs = e._attributes();
+  e._modalContainer.innerHTML = '';
+  e._activeSlot = null;
+  await e._openBackups();
+  calls.length = 0;
+  assert.match(e._modalContainer.innerHTML, /Чтение занимает несколько минут/);
+  e.querySelector('#profile-backup').listeners.click();
+  assert.equal(calls.length, 0);
+  assert.equal(e.querySelector('#profile-confirm').style.display, '');
+  e.querySelector('#profile-no').listeners.click();
+  assert.equal(e.querySelector('#profile-confirm').style.display, 'none');
+  assert.equal(calls.length, 0);
+  e.querySelector('#profile-secrets').checked = true;
+  e._hass.callWS = async msg => {
+    calls.push(msg);
+    if (msg.service !== 'backup_profile') return {response: {backups: []}};
+    attrs.profile_read = {active: true, percent: 45, records: 410};
+    e._update();
+    assert.equal(e.querySelector('#profile-backup').textContent, 'Читаю профиль: 45 %');
+    assert.match(e.querySelector('#profile-result').textContent, /45 %, записей 410/);
+    attrs.profile_read = {active: false, file: 'vega-1.vsf', records: 966, profile: 'ISpace_4wd', unchanged: false, includes_secrets: true, time: '2026-11-25T15:29:42Z'};
+    return {response: {file: 'vega-1.vsf', unchanged: false}};
+  };
+  e.querySelector('#profile-backup').listeners.click();
+  await e.querySelector('#profile-yes').listeners.click();
+  const sent = calls.filter(c => c.service === 'backup_profile');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].service_data.include_secrets, true);
+  assert.equal(sent[0].service_data.entry_id, 'tracker-one');
+  assert.match(e.lastEvent.detail.message, /Копия профиля сохранена: vega-1\.vsf/);
+  assert.equal(e.querySelector('#profile-backup').textContent, 'Создать полную копию профиля (.vsf)');
+  assert.match(e.querySelector('#profile-result').textContent, /^Профиль ISpace_4wd: 966 записей, с паролями, копия vega-1\.vsf/);
+  assert.equal(e._saving, false);
+});
+
+test('failed profile copy shows the reason', async () => {
+  const {e} = editor();
+  e._modalContainer.innerHTML = '';
+  await e._openBackups();
+  e._hass.callWS = async () => { throw new Error('Копия профиля не сохранена: Трекер не ответил на чтение 3004/2805'); };
+  await e._backupProfile();
+  assert.match(e.querySelector('#editor-error').textContent, /3004\/2805/);
+  assert.equal(e.querySelector('#profile-backup').disabled, false);
+});
+
 function commandEditor(action = 'preheat') {
   const {e, calls, data} = editor(4);
   const attrs = e._attributes();

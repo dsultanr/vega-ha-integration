@@ -21,7 +21,7 @@ from typing import Any, Callable
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from . import climate_profile, combine, protocol, hv_profile, sensor_pull
+from . import climate_profile, combine, protocol, hv_profile, profile_backup, sensor_pull
 from .raw_capture import RawCapture
 from .const import DEFAULT_IMEI, DOWNLINK_EVENT, ONLINE_TIMEOUT, SENSOR_KEY_MAP
 from .hv_battery import HvBatteryTelemetry, INPUTS as HV_INPUTS
@@ -416,6 +416,8 @@ class VegaRuntime:
         self._scripts_lock = asyncio.Lock()
         self._scenarios: list[dict] = []
         self._scenario_read_at: str | None = None
+        self._profile_read: dict = {}  # progress and outcome of the last full profile read
+        self._tracker_info: dict = {}  # CAN profile name and MCU firmware as last read
         # Scenarios the buttons resolve their command numbers from: the last complete, verified state.
         # Read when direct control is first switched on and by "Прочитать из трекера"; kept across restarts.
         self._command_scenarios: list[dict] = []
@@ -1430,6 +1432,47 @@ class VegaRuntime:
         return self._slot_names.get(slot)
 
     @property
+    def profile_read(self) -> dict:
+        return self._profile_read
+
+    @property
+    def tracker_info(self) -> dict:
+        return self._tracker_info
+
+    def _tracker_info_path(self) -> str:
+        return self.hass.config.path("vega", f"tracker_info_{self.imei}.json")
+
+    async def _read_tracker_info(self, session) -> None:
+        """CAN profile name (5499) and MCU firmware (sensor 2): two reads, shown in the editor.
+
+        Buttons and the editor do not depend on them, so a failed read only leaves them unknown.
+        """
+        info = {}
+        for key, number in (("can_profile", profile_backup.PROFILE_NAME), ("firmware", 2)):
+            try:
+                sensor = await session.query_sensor(number, 0)
+                if sensor and sensor.get("id") == number:
+                    info[key] = bytes.fromhex(sensor["raw_hex"]).split(b"\0", 1)[0].decode("latin1").strip()
+            except (CommandError, OSError, RuntimeError, asyncio.TimeoutError, KeyError, TypeError, ValueError) as err:
+                _LOGGER.debug("Vega: %s not read: %s", key, err)
+        if not info:
+            return
+        info["read_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        self._tracker_info = info
+        path = self._tracker_info_path()
+
+        def write():
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path + ".tmp", "w", encoding="utf-8") as stream:
+                json.dump(info, stream, ensure_ascii=False)
+            os.replace(path + ".tmp", path)
+
+        try:
+            await self.hass.async_add_executor_job(write)
+        except OSError as err:
+            _LOGGER.debug("Vega: persist tracker info failed: %s", err)
+
+    @property
     def can_scripts(self) -> list[dict]:
         return self._can_scripts
 
@@ -1466,6 +1509,12 @@ class VegaRuntime:
         self._scenarios = []
         self._scenario_read_at = None
         self._command_scenarios = []
+        try:
+            with open(self._tracker_info_path(), encoding="utf-8") as f:
+                saved = json.load(f)
+            self._tracker_info = {key: str(saved[key]) for key in ("can_profile", "firmware", "read_at") if key in saved}
+        except (OSError, ValueError, TypeError):
+            self._tracker_info = {}
         try:
             with open(self._command_scenarios_path(), encoding="utf-8") as f:
                 saved = json.load(f)["scenarios"]
@@ -1625,6 +1674,7 @@ class VegaRuntime:
                 await self._persist_scenarios()
             except (CommandError, ValueError, OSError) as err:
                 _LOGGER.warning("Vega: scripts read; scenario bindings unavailable: %s", err)
+            await self._read_tracker_info(session)
             self._publish()
             return self._can_scripts
 
@@ -1926,6 +1976,84 @@ class VegaRuntime:
                 await self._persist_scripts()
                 await self._persist_scenarios()
                 self._publish()
+
+    async def async_backup_profile(self, include_secrets: bool = False) -> dict:
+        """Read the whole tracker profile and save it as a Vega Configurator .vsf file.
+
+        Nothing is written to the tracker. The file appears only after a complete read:
+        a record the tracker did not answer for fails the copy instead of being left out.
+        """
+        folder = self.hass.config.path("vega", f"profile_backups_{self.imei}")
+        started = time.monotonic()
+
+        def progress(percent: int, count: int) -> None:
+            # Every state change stores all attributes of the sensor, so report in 5 % steps.
+            step = percent - percent % 5
+            if self._profile_read.get("percent") != step:
+                self._profile_read = {"active": True, "percent": step, "records": count}
+                self._publish()
+
+        def failed(text: str) -> CommandError:
+            self._profile_read = {"active": False, "error": text}
+            self._publish()
+            return CommandError(text)
+
+        async with self._scripts_lock:
+            self._profile_read = {"active": True, "percent": 0, "records": 0}
+            self._publish()
+            try:
+                records, missing = await profile_backup.read_profile(
+                    self._script_session(), include_secrets=include_secrets, progress=progress)
+            except (profile_backup.ProfileReadError, CommandError) as err:
+                raise failed(f"Копия профиля не сохранена: {err}") from err
+            except OSError as err:
+                raise failed(f"Копия профиля не сохранена: чтение прервано ({err})") from err
+            except BaseException:
+                self._profile_read = {"active": False, "error": "Чтение профиля прервано"}
+                self._publish()
+                raise
+        content = profile_backup.build(records)
+        now = time.gmtime()
+
+        def write() -> tuple[str, bool]:
+            os.makedirs(folder, mode=0o700, exist_ok=True)
+            # A profile that has not changed since the newest copy is not stored twice.
+            names = sorted(name for name in os.listdir(folder) if name.endswith(".vsf"))
+            if names:
+                with open(os.path.join(folder, names[-1]), "rb") as stream:
+                    if stream.read() == content:
+                        return os.path.join(folder, names[-1]), True
+            base = f"vega-{self.imei}-{time.strftime('%Y%m%dT%H%M%SZ', now)}"
+            for suffix in [""] + [f"-{n}" for n in range(1, 1000)]:
+                path = os.path.join(folder, f"{base}{suffix}.vsf")
+                try:
+                    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                except FileExistsError:
+                    continue
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(content)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                with open(path, "rb") as stream:
+                    if profile_backup.parse(stream.read()) != records:
+                        raise OSError("saved file differs from what was read")
+                return path, False
+            raise OSError("no free file name")
+
+        try:
+            path, unchanged = await self.hass.async_add_executor_job(write)
+        except (OSError, ValueError) as err:
+            raise failed("Не удалось сохранить копию профиля") from err
+        result = {"path": path, "file": os.path.basename(path), "bytes": len(content),
+                  "records": len(records), "settings": len({setting for setting, _sub, _data in records}),
+                  "missing": missing, "profile": profile_backup.profile_name(records),
+                  "includes_secrets": include_secrets, "unchanged": unchanged,
+                  "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", now),
+                  "seconds": round(time.monotonic() - started, 1)}
+        self._profile_read = {"active": False, **{key: result[key] for key in (
+            "file", "records", "profile", "includes_secrets", "unchanged", "time")}}
+        self._publish()
+        return result
 
     async def async_list_command_backups(self) -> dict:
         folder = self._snapshot_dir()

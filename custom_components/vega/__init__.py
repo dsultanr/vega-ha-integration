@@ -279,6 +279,9 @@ def _register_services(hass: HomeAssistant) -> None:
     async def _backup_commands(call) -> dict:
         return await _runtime(call).async_backup_commands(call.data.get("note", ""))
 
+    async def _backup_profile(call) -> dict:
+        return await _runtime(call).async_backup_profile(call.data.get("include_secrets", False))
+
     async def _list_backups(call) -> dict:
         return await _runtime(call).async_list_command_backups()
 
@@ -293,6 +296,11 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, "backup_commands", _backup_commands,
         schema=vol.Schema({vol.Optional("entry_id"): str, vol.Optional("note"): str}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, "backup_profile", _backup_profile,
+        schema=vol.Schema({vol.Optional("entry_id"): str, vol.Optional("include_secrets", default=False): bool}),
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(
