@@ -212,10 +212,6 @@ class CommandSaveTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.runtime.slot_name(4))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 # Scenarios of the factory ISpace_11092025 profile (ISpace_09072025 has the same ones): the same
 # scripts in the same slots, started by other settings than on ISpace_4wd.
 SCENARIOS_2025 = {i: bytes(50) for i in range(25)}
@@ -351,3 +347,7 @@ class CommandSendTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.direct_control = False
         self.assertFalse(await self.runtime.async_prime_command_scenarios(attempts=1))
         self.assertEqual(self.session.reads, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

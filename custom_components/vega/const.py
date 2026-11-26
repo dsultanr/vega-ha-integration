@@ -29,6 +29,15 @@ CONF_UPSTREAM_HOST = "upstream_host"
 CONF_UPSTREAM_PORT = "upstream_port"
 CONF_LEARNED_PIN = "learned_pin"
 CONF_LEARNED_IMEI = "learned_imei"
+# Which sensors the periodic poll asks for. The tracker already sends most of
+# them in its own records; "missing" asks only for those that did not arrive.
+CONF_POLL_MODE = "poll_mode"
+POLL_MODE_MISSING = "missing"
+POLL_MODE_ALL = "all"
+POLL_MODE_OFF = "off"
+POLL_MODES = (POLL_MODE_MISSING, POLL_MODE_ALL, POLL_MODE_OFF)
+DEFAULT_POLL_MODE = POLL_MODE_MISSING
+
 # Optional "host:port" that receives a copy of the tracker's Wialon Combine
 # stream. Empty (the default) = no copy. There is no built-in address: the
 # owner names the server.
@@ -169,6 +178,7 @@ SENSOR_TYPES = {
     "satellites": ("Satellites", None, None, "mdi:satellite-variant", "satellites", SensorStateClass.MEASUREMENT),
     "hdop": ("GPS HDOP", None, None, "mdi:signal", "hdop", SensorStateClass.MEASUREMENT),
     "course": ("Course", "°", None, "mdi:compass", "course", SensorStateClass.MEASUREMENT),
+    "polled_sensors": ("Polled Sensors", None, None, "mdi:playlist-check", "polled_sensors", SensorStateClass.MEASUREMENT),
     "position_time": ("Position Time", None, SensorDeviceClass.TIMESTAMP, "mdi:crosshairs-gps", "position_time", None),
     "last_online": ("Last Online", None, SensorDeviceClass.TIMESTAMP, "mdi:clock-outline", "last_online", None),
     # Onboarding diagnostics (text, no state_class).

@@ -29,16 +29,27 @@
           "upstream_host": "Evolute cloud host (proxy upstream)",
           "upstream_port": "Evolute cloud port",
           "log_downlink": "Log HA → tracker packets",
-          "combine_upstream": "Copy Wialon Combine to a server (host:port)"
+          "combine_upstream": "Copy Wialon Combine to a server (host:port)",
+          "poll_mode": "Sensor polling"
         },
         "data_description": {
           "log_downlink": "Fire a vega_downlink event for every frame sent to the tracker — both HA's own (commands/queries) and cloud frames relayed through the proxy. Events are stored by the recorder (see Developer Tools → Events / Logbook) and kept for the recorder's global purge_keep_days. Off by default.",
-          "combine_upstream": "A copy of the Wialon Combine stream the tracker sends to this integration is forwarded to this server. Home Assistant still acknowledges the tracker itself, so its telemetry does not depend on that server; the server's replies are ignored, and data sent while it was unreachable may not reach it. Leave empty to turn the copy off."
+          "combine_upstream": "A copy of the Wialon Combine stream the tracker sends to this integration is forwarded to this server. Home Assistant still acknowledges the tracker itself, so its telemetry does not depend on that server; the server's replies are ignored, and data sent while it was unreachable may not reach it. Leave empty to turn the copy off.",
+          "poll_mode": "The tracker sends most sensors on its own, in its records. \"Missing only\" asks for the sensors that did not arrive in the last 5 minutes (the first cycle after a connection asks for all). \"All sensors\" asks for every sensor each cycle. \"Off\" relies on the tracker's records and Wialon Combine alone; with Direct Control on, the Remote state is still read on trackers whose scenarios hold Remote with an output."
         }
       }
     },
     "error": {
       "invalid_combine_upstream": "Enter host:port, for example example.org:20332, or leave empty"
+    }
+  },
+  "selector": {
+    "poll_mode": {
+      "options": {
+        "missing": "Missing only",
+        "all": "All sensors",
+        "off": "Off"
+      }
     }
   }
 }

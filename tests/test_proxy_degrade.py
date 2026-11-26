@@ -161,9 +161,6 @@ class UpstreamSensorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("upstream_ok", self.rt.snapshot())
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
 class RawRelayTests(unittest.IsolatedAsyncioTestCase):
     async def test_bytes_saved_before_forward_even_when_drain_fails(self):
         import base64
@@ -266,3 +263,7 @@ class ServerAddressWriteTests(unittest.IsolatedAsyncioTestCase):
             result=await rt.async_set_server_address(4,'new:42','old:12')
             self.assertTrue(result['changed']);self.assertEqual(writes[0][:2],(3001,3))
             self.assertEqual(writes[0][2][-3:],raw[-3:]);self.assertEqual(len(writes[0][2]),35)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

@@ -24,6 +24,11 @@ CMD_GET_FILE = 0x08
 CMD_GET_FILE_ANS = 0x09
 # 0x0A/0x0B are GET_DEV_INF / _ANS (the ANS carries the IMEI as ASCII digits).
 CMD_GET_DEV_INF = 0x0A
+# The tracker's own records ("black box"): track points with the sensors its
+# transmit settings (3004) attach. Not in the Configurator's packet list; the
+# layout was read from captured traffic between a tracker and the OEM cloud.
+CMD_RECORDS = 0x11
+CMD_RECORDS_ANS = 0x12
 CMD_GET_DEV_INF_ANS = 0x0B
 
 
@@ -53,7 +58,9 @@ def parse_imei(payload: bytes) -> str | None:
 
 # Levelled external output that holds a Remote session. It does not self-clear,
 # so leaving it armed both swallows the next command (no rising edge) and drains
-# the 12V battery. The runtime watchdog clears it when the session ends.
+# the 12V battery. The runtime watchdog clears it when the session ends; which
+# output that is on a given tracker comes from remote_hold_setting(), and
+# REMOTE_LEVEL_SETTING is only the ISpace_4wd number the Remote buttons use.
 REMOTE_STATE_SENSOR = 2805  # 3 = Remote Start, 1 = idle
 REMOTE_LEVEL_SETTING = 1341
 
@@ -225,6 +232,53 @@ def build_frame(cmd: int, payload: bytes) -> bytes:
     body = struct.pack("<HB", flen, cmd) + payload
     crc = zlib.crc32(body)
     return body + struct.pack("<I", crc)
+
+
+def build_records_ack_frame(seq: int) -> bytes:
+    """Acknowledge a CMD_RECORDS packet: its number and status 0, as the cloud does."""
+    return build_frame(CMD_RECORDS_ANS, struct.pack("<HB", seq & 0xFFFF, 0))
+
+
+_RECORD_HEAD = struct.Struct("<IffhHHBH")  # time, lat, lon, alt, speed, course, sats, len|flag
+
+
+def parse_records(payload: bytes) -> dict | None:
+    """Parse a CMD_RECORDS payload. Returns None if it does not parse exactly.
+
+    Layout: packet number u16, record count u16, then per record a 21-byte head
+    (unix time u32, latitude f32, longitude f32, altitude i16 m, speed u16 km/h,
+    course u16 deg, satellites u8, sensor block length u16 with the top bit set)
+    and the sensor block: id u16, type u8, value length u8, value. Values use
+    the same encoding as a sensor read, only without the padding to 8 bytes.
+    """
+    if len(payload) < 4:
+        return None
+    seq, count = struct.unpack_from("<HH", payload, 0)
+    offset = 4
+    records = []
+    for _ in range(count):
+        if offset + _RECORD_HEAD.size > len(payload):
+            return None
+        stamp, lat, lon, alt, speed, course, sats, block = _RECORD_HEAD.unpack_from(payload, offset)
+        offset += _RECORD_HEAD.size
+        end = offset + (block & 0x7FFF)
+        if end > len(payload):
+            return None
+        sensors = []
+        while offset < end:
+            if offset + 4 > end:
+                return None
+            sid, _kind, vlen = struct.unpack_from("<HBB", payload, offset)
+            offset += 4
+            if offset + vlen > end:
+                return None
+            sensors.append((sid, bytes(payload[offset:offset + vlen])))
+            offset += vlen
+        records.append({"time": stamp, "lat": lat, "lon": lon, "alt": alt, "speed": speed,
+                        "course": course, "sats": sats, "sensors": sensors})
+    if offset != len(payload):
+        return None
+    return {"seq": seq, "records": records}
 
 
 def build_auth_frame(pin: str) -> bytes:
@@ -713,6 +767,30 @@ def resolve_commands(scenarios: list[dict]) -> dict:
         else:
             result[action] = {"error": f"сценарии трекера не используют команду {setting}"}
     return result
+
+
+def remote_hold_setting(scenarios: list[dict]) -> int | None:
+    """The output that holds a Remote session on this tracker, as a setting number, or None.
+
+    On ISpace_4wd the preheat and cooling scenarios switch external output 1 on with no timer;
+    it stays on after the car leaves Remote by itself and has to be cleared from outside. That
+    is read from the scenarios, never assumed: the i-Space 2025 profiles start nothing this way
+    and use output 1 for something else. None unless the scenarios are complete, the preheat or
+    cooling button resolves, and every such scenario holds the same single output.
+    """
+    if not _scenarios_complete(scenarios):
+        return None
+    resolved = resolve_commands(scenarios)
+    starters = {resolved[action]["setting_id"] for action in ("preheat", "cooling")
+                if "setting_id" in resolved[action]}
+    held = set()
+    for scenario in scenarios:
+        if not any(c["sensor"] in starters for c in scenario["conditions"]):
+            continue
+        actions = scenario["document"]["actions"]
+        if actions["external_output_on"] and not actions["external_output_on_seconds"]:
+            held.add(1340 + actions["external_output_on"])
+    return held.pop() if len(held) == 1 else None
 
 
 def command_script_bindings(scenarios: list[dict]) -> dict:

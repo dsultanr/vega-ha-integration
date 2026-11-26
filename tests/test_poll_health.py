@@ -86,7 +86,7 @@ class PollHealthTests(unittest.IsolatedAsyncioTestCase):
     async def test_silent_tracker_stops_cycle_early_and_reports_problem(self):
         session = _Session("silent")
         with self.assertLogs(runtime_module._LOGGER, "WARNING") as logs:
-            self.assertFalse(await self.rt._poll_sensors(session))
+            await self.rt._poll_sensors(session)
         self.assertEqual(session.calls, runtime_module.POLL_SILENT_LIMIT)
         self.assertIn("does not answer the sensor poll", logs.output[0])
         snap = self.rt.snapshot()
@@ -100,13 +100,14 @@ class PollHealthTests(unittest.IsolatedAsyncioTestCase):
             await self.rt._poll_sensors(_Session("value"))
         text = "\n".join(logs.output)
         self.assertEqual(text.count("does not answer the sensor poll"), 1)
-        self.assertEqual(text.count("answers the sensor poll again"), 1)
+        self.assertEqual(text.count("sends data again"), 1)
         self.assertIs(self.rt.snapshot()["poll_problem"], False)
 
     async def test_refusals_are_answers_not_silence(self):
         session = _Session("refuse")
-        self.assertFalse(await self.rt._poll_sensors(session))
+        await self.rt._poll_sensors(session)
         self.assertEqual(session.calls, SENSOR_COUNT)
+        self.assertNotIn("battery_percentage", self.rt.snapshot())
         self.assertIs(self.rt.snapshot()["poll_problem"], False)
 
     async def test_raising_session_counts_as_silence(self):
@@ -135,6 +136,139 @@ class PollHealthTests(unittest.IsolatedAsyncioTestCase):
     async def test_combine_position_moves_last_online(self):
         self.rt._ingest_combine_position({"lat": 55.0, "lon": 37.0})
         self.assertIn("last_online", self.rt.snapshot())
+
+
+class PollModeTests(unittest.IsolatedAsyncioTestCase):
+    """Which sensors a cycle asks for, by the owner's poll mode."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.rt = _runtime(self.temp.name)
+        self.ids = list(runtime_module.protocol.SENSOR_DEFS)
+
+    def _cover(self, ids, age=0.0):
+        for sid in ids:
+            self.rt._sensor_seen[sid] = time.time() - age
+
+    async def test_missing_is_the_default_and_the_first_cycle_asks_for_everything(self):
+        self.assertEqual(self.rt.poll_mode, "missing")
+        self._cover(self.ids)
+        session = _Session("value")
+        await self.rt._poll_sensors(session)
+        self.assertEqual(session.calls, SENSOR_COUNT)
+        self.assertEqual(self.rt.snapshot()["polled_sensors"], SENSOR_COUNT)
+
+    async def test_missing_then_asks_only_for_what_records_did_not_bring(self):
+        session = _Session("value")
+        await self.rt._poll_sensors(session)
+        session.calls = 0
+        self._cover(self.ids[7:])
+        published = []
+        self.rt.set_update_callback(published.append)
+        self.assertTrue(await self.rt._poll_sensors(session))
+        self.assertEqual(session.calls, 7)
+        self.assertEqual(self.rt.snapshot()["polled_sensors"], 7)
+
+    async def test_a_sensor_last_seen_long_ago_is_asked_for_again(self):
+        session = _Session("value")
+        await self.rt._poll_sensors(session)
+        session.calls = 0
+        self._cover(self.ids[1:])
+        self._cover(self.ids[:1], age=runtime_module.RECORD_COVER_SEC + 1)
+        await self.rt._poll_sensors(session)
+        self.assertEqual(session.calls, 1)
+
+    async def test_everything_covered_asks_for_nothing_and_is_not_a_problem(self):
+        session = _Session("value")
+        await self.rt._poll_sensors(session)
+        session.calls = 0
+        self._cover(self.ids)
+        await self.rt._poll_sensors(session)
+        self.assertEqual(session.calls, 0)
+        snap = self.rt.snapshot()
+        self.assertEqual(snap["polled_sensors"], 0)
+        self.assertIs(snap["poll_problem"], False)
+
+    async def test_a_new_connection_gets_a_complete_cycle_again(self):
+        self._cover(self.ids)
+        await self.rt._poll_sensors(_Session("value"))
+        second = _Session("value")
+        await self.rt._poll_sensors(second)
+        self.assertEqual(second.calls, SENSOR_COUNT)
+
+    async def test_all_asks_for_everything_every_cycle(self):
+        self.rt.poll_mode = "all"
+        self._cover(self.ids)
+        session = _Session("value")
+        await self.rt._poll_sensors(session)
+        await self.rt._poll_sensors(session)
+        self.assertEqual(session.calls, 2 * SENSOR_COUNT)
+
+    async def test_off_asks_for_nothing(self):
+        self.rt.poll_mode = "off"
+        session = _Session("value")
+        await self.rt._poll_sensors(session)
+        self.assertEqual(session.calls, 0)
+        snap = self.rt.snapshot()
+        self.assertEqual(snap["polled_sensors"], 0)
+        self.assertNotIn("poll_problem", snap)  # no evidence either way yet
+
+    async def test_mode_change_applies_to_the_next_cycle(self):
+        session = _Session("value")
+        await self.rt._poll_sensors(session)
+        self.rt.poll_mode = "off"
+        session.calls = 0
+        await self.rt._poll_sensors(session)
+        self.assertEqual(session.calls, 0)
+        self.rt.poll_mode = "all"
+        await self.rt._poll_sensors(session)
+        self.assertEqual(session.calls, SENSOR_COUNT)
+
+
+class DataFlowTests(unittest.IsolatedAsyncioTestCase):
+    """The problem flag when little or nothing is polled."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.rt = _runtime(self.temp.name)
+        self.rt.poll_mode = "off"
+
+    async def test_poll_off_and_no_records_becomes_a_problem_after_the_long_limit(self):
+        session = _Session("value")
+        await self.rt._poll_sensors(session)  # starts the grace period
+        self.assertNotIn("poll_problem", self.rt.snapshot())
+        self.rt._last_answer -= runtime_module.DATA_SILENCE_SEC - 5
+        await self.rt._poll_sensors(session)
+        self.assertNotIn("poll_problem", self.rt.snapshot())
+        self.rt._last_answer -= 10
+        with self.assertLogs(runtime_module._LOGGER, "WARNING"):
+            await self.rt._poll_sensors(session)
+        self.assertIs(self.rt.snapshot()["poll_problem"], True)
+
+    async def test_a_record_clears_the_problem_even_if_it_is_old_history(self):
+        session = _Session("value")
+        await self.rt._poll_sensors(session)
+        self.rt._last_answer -= runtime_module.DATA_SILENCE_SEC + 5
+        with self.assertLogs(runtime_module._LOGGER, "WARNING"):
+            await self.rt._poll_sensors(session)
+        with self.assertLogs(runtime_module._LOGGER, "INFO") as logs:
+            self.rt._ingest_records({"seq": 1, "records": [{
+                "time": int(time.time()) - 7200, "lat": 55.0, "lon": 37.0, "alt": 0, "speed": 0,
+                "course": 0, "sats": 0, "sensors": []}]})
+        self.assertIn("sends data again", logs.output[0])
+        self.assertIs(self.rt.snapshot()["poll_problem"], False)
+
+    async def test_unanswered_queries_wait_while_records_are_recent(self):
+        self.rt.poll_mode = "all"
+        self.rt._ingest_records({"seq": 1, "records": []})  # the tracker just spoke
+        await self.rt._poll_sensors(_Session("silent"))
+        self.assertNotIn("poll_problem", self.rt.snapshot())
+        self.rt._last_answer -= runtime_module.POLL_SILENCE_SEC + 1
+        with self.assertLogs(runtime_module._LOGGER, "WARNING"):
+            await self.rt._poll_sensors(_Session("silent"))
+        self.assertIs(self.rt.snapshot()["poll_problem"], True)
 
 
 class _Transport:

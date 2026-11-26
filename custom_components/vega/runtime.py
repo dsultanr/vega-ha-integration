@@ -211,6 +211,23 @@ _FW_IDLE_FINALIZE_SEC = 20.0  # a transfer is "done" after this quiet gap
 # commands); only the periodic sensor query pauses.
 COMBINE_FRESH_SEC = 90.0
 
+# How the OEM cloud keeps a Vega Binary session up: an empty device-info
+# request every 15 s. Without it a tracker drops the connection and reconnects
+# every minute or two.
+KEEPALIVE_SEC = 15.0
+# The tracker replays stored records after an outage. Only a record this fresh
+# may change the current state; older ones are acknowledged and left alone.
+RECORD_FRESH_SEC = 120.0
+SENSOR_HDOP = 106
+# In the "missing" poll mode a sensor is asked for only if no tracker record
+# carried it this recently. Trackers send a sensor every 200 s plus on change.
+RECORD_COVER_SEC = 300.0
+# The tracker is connected yet silent: no record and no poll answer this long.
+# With queries going unanswered the shorter limit applies.
+DATA_SILENCE_SEC = 300.0
+POLL_SILENCE_SEC = 60.0
+POLL_MODE_MISSING, POLL_MODE_ALL, POLL_MODE_OFF = "missing", "all", "off"
+
 # A poll cycle stops after this many unanswered queries in a row: the session is
 # stalled, and finishing the cycle would spend minutes on a dead connection.
 POLL_SILENT_LIMIT = 3
@@ -379,6 +396,7 @@ class VegaRuntime:
         direct_control: bool = False,
         upstream: tuple[str, int] | None = None,
         combine_upstream: tuple[str, int] | None = None,
+        poll_mode: str = POLL_MODE_MISSING,
         learned_pin: str | None = None,
         learned_imei: str = "",
         persist_cb: Callable[[dict], None] | None = None,
@@ -411,6 +429,11 @@ class VegaRuntime:
         self._wialon_last_seen: float = 0.0
         self._combine_last_seen: float = 0.0
         self._last_data: float = 0.0  # last time telemetry values actually arrived
+        self._record_time: int = 0  # time of the newest tracker record applied
+        self.poll_mode = poll_mode
+        self._sensor_seen: dict[int, float] = {}  # sensor id -> when a record last carried it
+        self._last_answer: float = 0.0  # last record or poll answer of any kind
+        self._polled_count: int | None = None  # sensors asked for in the last cycle
         self._poll_ok: bool | None = None  # None until a poll cycle has run
         self._writers: set = set()  # every open listener connection, for stop()
         self._upstream_fail_at: float = 0.0  # proxy upstream backoff clock
@@ -531,6 +554,8 @@ class VegaRuntime:
             data["last_online"] = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(self._last_data))
         if self._poll_ok is not None:
             data["poll_problem"] = not self._poll_ok
+        if self._polled_count is not None:
+            data["polled_sensors"] = self._polled_count
         # Present only in proxy mode, once a connect to the upstream was tried.
         if self.proxy_mode and self._upstream_ok is not None:
             data["upstream_ok"] = self._upstream_ok
@@ -606,8 +631,25 @@ class VegaRuntime:
         finally:
             self._writers.discard(writer)
 
+    def _poll_targets(self, session) -> list[int]:
+        """Sensors this cycle asks for, by the owner's poll mode."""
+        if self.poll_mode == POLL_MODE_OFF:
+            return []
+        every = list(protocol.SENSOR_DEFS)
+        # The first cycle on a connection is always complete: an unchanged
+        # sensor would otherwise stay empty until the tracker's next period.
+        first = not getattr(session, "polled_once", False)
+        try:
+            session.polled_once = True
+        except AttributeError:
+            pass
+        if self.poll_mode == POLL_MODE_ALL or first:
+            return every
+        cutoff = time.time() - RECORD_COVER_SEC
+        return [sid for sid in every if self._sensor_seen.get(sid, 0.0) < cutoff]
+
     async def _poll_sensors(self, session) -> bool:
-        """Run one sensor poll cycle on `session`; True if any value arrived.
+        """Run one sensor poll cycle on `session`; True if anything changed.
 
         A refusal (the tracker has no such sensor) is still an answer. Only
         unanswered queries count as silence, and POLL_SILENT_LIMIT of them in a
@@ -616,7 +658,8 @@ class VegaRuntime:
         changed = False
         replied = 0
         silent = 0
-        for sid in protocol.SENSOR_DEFS:
+        targets = self._poll_targets(session)
+        for sid in targets:
             before = getattr(session, "timeouts", 0)
             try:
                 sensor = await session.query_sensor(sid, 0)
@@ -637,8 +680,28 @@ class VegaRuntime:
                 changed = True
             if silent >= POLL_SILENT_LIMIT:
                 break
-        self._note_poll(replied > 0)
+        if self._polled_count != len(targets):
+            self._polled_count = len(targets)
+            changed = True
+        self._note_data_flow(asked=len(targets), replied=replied)
         return changed
+
+    def _note_data_flow(self, *, asked: int, replied: int) -> None:
+        """Decide whether a connected tracker is actually talking.
+
+        Evidence is a poll answer or a record of its own. Unanswered queries
+        are a problem after POLL_SILENCE_SEC without either; with nothing asked
+        (poll off, or everything covered by records) after DATA_SILENCE_SEC.
+        """
+        now = time.time()
+        if replied:
+            self._last_answer = now
+            self._note_poll(True)
+            return
+        if not self._last_answer:
+            self._last_answer = now if not asked else now - POLL_SILENCE_SEC - 1
+        if now - self._last_answer > (POLL_SILENCE_SEC if asked else DATA_SILENCE_SEC):
+            self._note_poll(False)
 
     def _note_upstream(self, ok: bool) -> None:
         """Record the outcome of a connect to the proxy upstream."""
@@ -653,10 +716,10 @@ class VegaRuntime:
         previous, self._poll_ok = self._poll_ok, ok
         if ok is False:
             _LOGGER.warning(
-                "Vega: the tracker is connected but does not answer the sensor poll; "
-                "sensor values are not being updated")
+                "Vega: the tracker is connected but sends no records and does not answer "
+                "the sensor poll; sensor values are not being updated")
         elif ok and previous is False:
-            _LOGGER.info("Vega: the tracker answers the sensor poll again")
+            _LOGGER.info("Vega: the tracker sends data again")
         self._publish()
 
     async def _handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -779,6 +842,64 @@ class VegaRuntime:
                 for p in rec.get("params", []) or []:
                     self._ingest_combine_param(p, observed=observed)
 
+    def _ingest_records(self, parsed: dict) -> bool:
+        """Apply the tracker's own records to the state; True if anything was used.
+
+        A record carries a track point and the sensors the tracker attaches to
+        it. Replayed history (older than RECORD_FRESH_SEC, or older than a
+        record already applied) must not overwrite the current state.
+        """
+        used = False
+        now = time.time()
+        # Even a replayed record shows the tracker is talking.
+        self._last_answer = now
+        if self._poll_ok is False:
+            self._note_poll(True)
+        for rec in parsed.get("records", []):
+            stamp = rec["time"]
+            # A stamp from the future (tracker clock not set) must not block
+            # every later record, so it is skipped like a stale one.
+            if stamp < self._record_time or not -RECORD_FRESH_SEC <= now - stamp <= RECORD_FRESH_SEC:
+                continue
+            self._record_time = stamp
+            used = True
+            self._last_data = now
+            lat, lon = rec["lat"], rec["lon"]
+            # 0/0 is what a tracker without a fix reports; NaN never compares true.
+            if (lat or lon) and -90 <= lat <= 90 and -180 <= lon <= 180:
+                self._position.update({
+                    "latitude": round(lat, 6), "longitude": round(lon, 6),
+                    "speed": rec["speed"], "course": rec["course"],
+                    "altitude": rec["alt"], "satellites": rec["sats"],
+                    "position_time": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(stamp)),
+                })
+            for sid, value in rec["sensors"]:
+                if sid == SENSOR_HDOP and len(value) == 4:
+                    self._position["hdop"] = round(struct.unpack("<f", value)[0], 2)
+                elif sid in protocol.SENSOR_DEFS:
+                    self._sensor_seen[sid] = now
+                    self._ingest_sensor(protocol.decode_sensor(sid, value),
+                                        observed=float(stamp), source="records")
+        return used
+
+    async def _keepalive_loop(self, session: VegaSession) -> None:
+        """Keep a direct session up the way the cloud does.
+
+        Written straight to the socket, not through send_raw: four frames a
+        minute would bury everything else in the optional downlink log.
+        """
+        frame = protocol.build_frame(protocol.CMD_GET_DEV_INF, b"")
+        try:
+            while True:
+                await asyncio.sleep(KEEPALIVE_SEC)
+                if session.authenticated:
+                    session.writer.write(frame)
+                    await session.writer.drain()
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Vega: keep-alive to %s stopped: %s", session.peer, err)
+
     def _ingest_combine_position(self, pos: dict) -> None:
         mapping = {"lat": "latitude", "lon": "longitude", "speed": "speed",
                    "course": "course", "alt": "altitude", "sats": "satellites", "hdop": "hdop"}
@@ -867,6 +988,7 @@ class VegaRuntime:
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Vega: error sending auth to %s: %s", peer, err)
 
+        keepalive = asyncio.get_running_loop().create_task(self._keepalive_loop(session))
         buf = bytearray(initial)
         try:
             while True:
@@ -881,6 +1003,7 @@ class VegaRuntime:
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Vega: connection error from %s: %s", peer, err)
         finally:
+            keepalive.cancel()
             self._vega_sessions.pop(peer, None)
             try:
                 writer.close()
@@ -911,6 +1034,16 @@ class VegaRuntime:
                 fut.set_result(parsed)
             if "sensor" in parsed:
                 self._ingest_sensor(parsed["sensor"])
+        elif cmd == protocol.CMD_RECORDS:
+            # The tracker's own records. Acknowledge like the cloud does, or the
+            # tracker keeps them queued for this server and sends them again.
+            parsed = protocol.parse_records(payload)
+            if parsed is None:
+                _LOGGER.debug("Vega: unparsed records frame from %s (%d bytes)", session.peer, len(payload))
+                return
+            session.writer.write(protocol.build_records_ack_frame(parsed["seq"]))
+            await session.writer.drain()
+            self._ingest_records(parsed)
         elif cmd == protocol.CMD_COMMAND:
             # Unsolicited telemetry/command frame from the tracker: ACK it.
             if len(payload) >= 4:
@@ -1140,6 +1273,11 @@ class VegaRuntime:
             imei = protocol.parse_imei(payload)
             if imei:
                 self._learn(imei=imei)
+        elif direction == "t2c" and cmd == protocol.CMD_RECORDS:
+            # Relayed session: the cloud acknowledges, HA only reads the data.
+            parsed = protocol.parse_records(payload)
+            if parsed is not None and self._ingest_records(parsed):
+                self._publish()
         elif cmd == protocol.CMD_COMMAND_ANS:
             parsed = protocol.parse_command_ans(payload)
             if not parsed:
@@ -1268,18 +1406,25 @@ class VegaRuntime:
                 await asyncio.sleep(self.poll_interval)
 
     async def _remote_state_watchdog(self, session: VegaSession) -> None:
-        """Clear the levelled output 1341 when a Remote session ends by timer.
+        """Clear the output that holds Remote when a Remote session ends by timer.
 
         This is a *write* to the vehicle, so it only runs when commands are
         enabled by the owner. 3 -> not-3 means the car left Remote on its own.
+        Which output to clear is read from this tracker's scenarios. Where no
+        scenario holds one (the i-Space 2025 profiles), or the scenarios have
+        not been read, nothing is asked and nothing is written.
         """
+        hold = protocol.remote_hold_setting(self._command_scenarios)
+        if hold is None:
+            self._last_remote_state = None
+            return
         sensor = await session.query_sensor(protocol.REMOTE_STATE_SENSOR, 0)
         cur = sensor.get("value") if sensor else None
         prev = self._last_remote_state
         self._last_remote_state = cur
         if prev == 3 and cur is not None and cur != 3:
-            _LOGGER.info("Vega: Remote session ended (%s -> %s), clearing output 1341", prev, cur)
-            await session.set_setting(protocol.REMOTE_LEVEL_SETTING, 0, bytes([0]))
+            _LOGGER.info("Vega: Remote session ended (%s -> %s), clearing output %s", prev, cur, hold)
+            await session.set_setting(hold, 0, bytes([0]))
 
     async def async_poll_once(self) -> None:
         """One-shot sensor poll (used for a quick post-command confirmation)."""

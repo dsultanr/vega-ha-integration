@@ -119,7 +119,8 @@ class FormatTests(unittest.TestCase):
         plan = {setting: (subs, dynamic) for setting, subs, dynamic in backup.plan(include_secrets=True)}
         self.assertEqual(len(backup.CATALOG), 120)
         self.assertEqual(len(plan), 123)
-        self.assertEqual(len(plan[3004][0]), 548)
+        self.assertEqual(len(plan[3004][0]), 729)
+        self.assertTrue({31, 1520, 1669, 2984, 31700, 32249} <= set(plan[3004][0]))
         self.assertEqual(plan[3004][0][-1], 33952)
         self.assertIn(7, plan[3101][0])
         self.assertIn(4, plan[5073][0])

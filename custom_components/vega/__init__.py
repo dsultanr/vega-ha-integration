@@ -30,6 +30,9 @@ from .const import (
     CONF_PIN2,
     CONF_COMBINE_UPSTREAM,
     CONF_POLL_INTERVAL,
+    CONF_POLL_MODE,
+    DEFAULT_POLL_MODE,
+    POLL_MODES,
     CONF_PORT,
     CONF_PROXY_MODE,
     CONF_UPSTREAM_HOST,
@@ -195,6 +198,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             int(_opt(entry, CONF_UPSTREAM_PORT, DEFAULT_UPSTREAM_PORT)),
         ),
         combine_upstream=_combine_upstream(entry),
+        poll_mode=_poll_mode(entry),
         learned_pin=_opt(entry, CONF_LEARNED_PIN, None),
         learned_imei=_opt(entry, CONF_LEARNED_IMEI, ""),
         persist_cb=_persist,
@@ -374,6 +378,11 @@ def _register_services(hass: HomeAssistant) -> None:
     )
 
 
+def _poll_mode(entry: ConfigEntry) -> str:
+    mode = str(_opt(entry, CONF_POLL_MODE, DEFAULT_POLL_MODE))
+    return mode if mode in POLL_MODES else DEFAULT_POLL_MODE
+
+
 def _combine_upstream(entry: ConfigEntry) -> tuple[str, int] | None:
     """The owner's server for the Combine copy, or None when off or unusable."""
     try:
@@ -411,6 +420,7 @@ async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     runtime.poll_interval = int(_opt(entry, CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
     runtime.log_downlink = bool(_opt(entry, CONF_LOG_DOWNLINK, DEFAULT_LOG_DOWNLINK))
     # Read before every connect to that server, so no listener restart is needed.
+    runtime.poll_mode = _poll_mode(entry)
     new_combine_upstream = _combine_upstream(entry)
     if new_combine_upstream != runtime.combine_upstream:
         runtime.combine_upstream = new_combine_upstream

@@ -10,6 +10,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
+from homeassistant.helpers import selector
+
 from .combine_mirror import parse_target
 from .const import (
     CONF_IMEI,
@@ -17,6 +19,9 @@ from .const import (
     CONF_PIN2,
     CONF_COMBINE_UPSTREAM,
     CONF_POLL_INTERVAL,
+    CONF_POLL_MODE,
+    DEFAULT_POLL_MODE,
+    POLL_MODES,
     CONF_PORT,
     CONF_UPSTREAM_HOST,
     CONF_UPSTREAM_PORT,
@@ -104,6 +109,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required(CONF_PIN, default=current.get(CONF_PIN, DEFAULT_PIN)): str,
                 vol.Optional(CONF_PIN2, default=current.get(CONF_PIN2, DEFAULT_PIN2)): str,
                 vol.Optional(CONF_POLL_INTERVAL, default=current.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)): vol.All(int, vol.Range(min=5, max=3600)),
+                vol.Optional(CONF_POLL_MODE, default=current.get(CONF_POLL_MODE, DEFAULT_POLL_MODE)): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(POLL_MODES),
+                        translation_key=CONF_POLL_MODE,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Optional(CONF_UPSTREAM_HOST, default=current.get(CONF_UPSTREAM_HOST, DEFAULT_UPSTREAM_HOST)): str,
                 vol.Optional(CONF_UPSTREAM_PORT, default=current.get(CONF_UPSTREAM_PORT, DEFAULT_UPSTREAM_PORT)): vol.All(int, vol.Range(min=1, max=65535)),
                 vol.Optional(
