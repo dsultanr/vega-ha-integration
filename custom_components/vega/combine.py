@@ -293,6 +293,11 @@ class Stream:
 
     def frames(self):
         """Yield every complete packet currently buffered."""
+        for pkt, _raw in self.raw_frames():
+            yield pkt
+
+    def raw_frames(self):
+        """Like frames(), but yields (packet, the frame's exact bytes)."""
         while self._buf:
             try:
                 pkt, n = parse_frame(bytes(self._buf))
@@ -311,5 +316,6 @@ class Stream:
                 self.dropped += skip
                 del self._buf[:skip]
                 continue
+            raw = bytes(self._buf[:n])
             del self._buf[:n]
-            yield pkt
+            yield pkt, raw

@@ -10,10 +10,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
+from .combine_mirror import parse_target
 from .const import (
     CONF_IMEI,
     CONF_PIN,
     CONF_PIN2,
+    CONF_COMBINE_UPSTREAM,
     CONF_POLL_INTERVAL,
     CONF_PORT,
     CONF_UPSTREAM_HOST,
@@ -75,16 +77,26 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         pass
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
+            # An emptied text field is left out of user_input, so read it
+            # explicitly: clearing the field must turn the copy off.
+            combine_upstream = str(user_input.get(CONF_COMBINE_UPSTREAM) or "").strip()
+            try:
+                parse_target(combine_upstream)
+            except ValueError:
+                errors[CONF_COMBINE_UPSTREAM] = "invalid_combine_upstream"
+        if user_input is not None and not errors:
             # Merge so the Proxy Mode / Direct Control switch states (also stored in
             # options) and learned data are preserved across an options save.
             data = {**self.config_entry.options, **user_input}
+            data[CONF_COMBINE_UPSTREAM] = combine_upstream
             raw_imei = str(user_input.get(CONF_IMEI, "")).strip()
             if raw_imei:
                 data[CONF_IMEI] = raw_imei
             return self.async_create_entry(title="", data=data)
 
-        current = {**self.config_entry.data, **self.config_entry.options}
+        current = {**self.config_entry.data, **self.config_entry.options, **(user_input or {})}
         schema = vol.Schema(
             {
                 vol.Required(CONF_PORT, default=current.get(CONF_PORT, DEFAULT_PORT)): vol.All(int, vol.Range(min=1, max=65535)),
@@ -94,7 +106,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(CONF_POLL_INTERVAL, default=current.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)): vol.All(int, vol.Range(min=5, max=3600)),
                 vol.Optional(CONF_UPSTREAM_HOST, default=current.get(CONF_UPSTREAM_HOST, DEFAULT_UPSTREAM_HOST)): str,
                 vol.Optional(CONF_UPSTREAM_PORT, default=current.get(CONF_UPSTREAM_PORT, DEFAULT_UPSTREAM_PORT)): vol.All(int, vol.Range(min=1, max=65535)),
+                vol.Optional(
+                    CONF_COMBINE_UPSTREAM,
+                    description={"suggested_value": current.get(CONF_COMBINE_UPSTREAM, "")},
+                ): str,
                 vol.Optional(CONF_LOG_DOWNLINK, default=current.get(CONF_LOG_DOWNLINK, DEFAULT_LOG_DOWNLINK)): bool,
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

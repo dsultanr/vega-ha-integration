@@ -17,6 +17,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 
+from .combine_mirror import parse_target
 from .const import (
     CARD_URL,
     CARD_VERSION,
@@ -27,6 +28,7 @@ from .const import (
     CONF_LEARNED_PIN,
     CONF_PIN,
     CONF_PIN2,
+    CONF_COMBINE_UPSTREAM,
     CONF_POLL_INTERVAL,
     CONF_PORT,
     CONF_PROXY_MODE,
@@ -192,6 +194,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             str(_opt(entry, CONF_UPSTREAM_HOST, DEFAULT_UPSTREAM_HOST)),
             int(_opt(entry, CONF_UPSTREAM_PORT, DEFAULT_UPSTREAM_PORT)),
         ),
+        combine_upstream=_combine_upstream(entry),
         learned_pin=_opt(entry, CONF_LEARNED_PIN, None),
         learned_imei=_opt(entry, CONF_LEARNED_IMEI, ""),
         persist_cb=_persist,
@@ -371,6 +374,15 @@ def _register_services(hass: HomeAssistant) -> None:
     )
 
 
+def _combine_upstream(entry: ConfigEntry) -> tuple[str, int] | None:
+    """The owner's server for the Combine copy, or None when off or unusable."""
+    try:
+        return parse_target(str(_opt(entry, CONF_COMBINE_UPSTREAM, "") or ""))
+    except ValueError:
+        _LOGGER.warning("Vega: ignoring the Combine copy address: expected host:port")
+        return None
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry: stop the listener and tear down platforms."""
     coordinator: VegaCoordinator = hass.data[DOMAIN][entry.entry_id]
@@ -398,6 +410,11 @@ async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     runtime.proxy_mode = bool(_opt(entry, CONF_PROXY_MODE, DEFAULT_PROXY_MODE))
     runtime.poll_interval = int(_opt(entry, CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
     runtime.log_downlink = bool(_opt(entry, CONF_LOG_DOWNLINK, DEFAULT_LOG_DOWNLINK))
+    # Read before every connect to that server, so no listener restart is needed.
+    new_combine_upstream = _combine_upstream(entry)
+    if new_combine_upstream != runtime.combine_upstream:
+        runtime.combine_upstream = new_combine_upstream
+        runtime._combine_copy.reset()  # the old server's state says nothing about the new one
 
     # Port or upstream change requires restarting the TCP listener
     new_port = int(_opt(entry, CONF_PORT, DEFAULT_PORT))

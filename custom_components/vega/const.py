@@ -29,6 +29,11 @@ CONF_UPSTREAM_HOST = "upstream_host"
 CONF_UPSTREAM_PORT = "upstream_port"
 CONF_LEARNED_PIN = "learned_pin"
 CONF_LEARNED_IMEI = "learned_imei"
+# Optional "host:port" that receives a copy of the tracker's Wialon Combine
+# stream. Empty (the default) = no copy. There is no built-in address: the
+# owner names the server.
+CONF_COMBINE_UPSTREAM = "combine_upstream"
+DEFAULT_COMBINE_UPSTREAM = ""
 DEFAULT_UPSTREAM_HOST = "telemetry.evassist.ru"
 DEFAULT_UPSTREAM_PORT = 21124
 # A fresh integration starts in learn/MITM mode (proxy on, direct off) so it
@@ -187,6 +192,12 @@ BINARY_SENSOR_TYPES = {
     "online": ("Online", BinarySensorDeviceClass.CONNECTIVITY, "is_online"),
     "moving": ("Moving", BinarySensorDeviceClass.MOVING, "is_moving"),
     "pin_learned": ("PIN Learned", None, "pin_learned"),
+    # on = the tracker is connected but leaves the sensor poll unanswered
+    "poll_problem": ("Sensor Poll Problem", BinarySensorDeviceClass.PROBLEM, "poll_problem"),
+    # on = the last connect to the Vega Binary proxy upstream (the cloud) succeeded
+    "upstream": ("Proxy Upstream", BinarySensorDeviceClass.CONNECTIVITY, "upstream_ok"),
+    # on = the last delivery of the Combine copy to the owner's server succeeded
+    "combine_copy": ("Combine Copy Server", BinarySensorDeviceClass.CONNECTIVITY, "combine_copy_ok"),
 }
 
 # Button definitions: (name, action, icon, confirm_key).

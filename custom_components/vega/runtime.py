@@ -21,7 +21,7 @@ from typing import Any, Callable
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from . import climate_profile, combine, protocol, hv_profile, profile_backup, sensor_pull
+from . import climate_profile, combine, combine_mirror, protocol, hv_profile, profile_backup, sensor_pull
 from .raw_capture import RawCapture
 from .const import DEFAULT_IMEI, DOWNLINK_EVENT, ONLINE_TIMEOUT, SENSOR_KEY_MAP
 from .hv_battery import HvBatteryTelemetry, INPUTS as HV_INPUTS
@@ -66,6 +66,7 @@ class VegaSession:
         self.req_counter = 1000
         self.pending_requests: dict[int, asyncio.Future] = {}
         self.retried_pin = False
+        self.timeouts = 0  # sensor queries the tracker left unanswered
         self.downlink_cb = None  # optional: called with every frame sent to the tracker
 
     def get_next_req_id(self) -> int:
@@ -94,6 +95,7 @@ class VegaSession:
         try:
             res = await self._request(frame, req_id, timeout=timeout)
         except asyncio.TimeoutError:
+            self.timeouts += 1
             return None
         return res.get("sensor")
 
@@ -134,6 +136,7 @@ class InjectionSession:
         self.last_seen = time.time()
         self.req_counter = 0x50000000
         self.pending_requests: dict[int, asyncio.Future] = {}
+        self.timeouts = 0  # sensor queries the tracker left unanswered
         self.downlink_cb = None  # optional: called with every frame injected to the tracker
 
     def get_next_req_id(self) -> int:
@@ -160,6 +163,7 @@ class InjectionSession:
         try:
             res = await self._request(frame, req_id, timeout=timeout)
         except asyncio.TimeoutError:
+            self.timeouts += 1
             return None
         return res.get("sensor")
 
@@ -206,6 +210,12 @@ _FW_IDLE_FINALIZE_SEC = 20.0  # a transfer is "done" after this quiet gap
 # decode paths. The S4 session itself stays up (Evolute proxy + on-demand
 # commands); only the periodic sensor query pauses.
 COMBINE_FRESH_SEC = 90.0
+
+# A poll cycle stops after this many unanswered queries in a row: the session is
+# stalled, and finishing the cycle would spend minutes on a dead connection.
+POLL_SILENT_LIMIT = 3
+# Longest wait for the listener to close when the integration stops.
+STOP_TIMEOUT_SEC = 5.0
 
 # Upstream (Evolute cloud) resilience for the proxy path. When the upstream is
 # unreachable we must not spin: each tracker reconnect would otherwise pile up
@@ -368,6 +378,7 @@ class VegaRuntime:
         proxy_mode: bool = False,
         direct_control: bool = False,
         upstream: tuple[str, int] | None = None,
+        combine_upstream: tuple[str, int] | None = None,
         learned_pin: str | None = None,
         learned_imei: str = "",
         persist_cb: Callable[[dict], None] | None = None,
@@ -385,6 +396,9 @@ class VegaRuntime:
         self.proxy_mode = proxy_mode
         self.direct_control = direct_control
         self.upstream = upstream
+        # Optional second server for a copy of the Wialon Combine stream; None = off.
+        self.combine_upstream = combine_upstream
+        self._combine_copy = combine_mirror.MirrorState(on_change=self._publish)
         self.learned_pin = learned_pin
         self.learned_imei = learned_imei or ""
         self._persist_cb = persist_cb
@@ -396,7 +410,12 @@ class VegaRuntime:
         self._vega_sessions: dict[Any, VegaSession] = {}
         self._wialon_last_seen: float = 0.0
         self._combine_last_seen: float = 0.0
+        self._last_data: float = 0.0  # last time telemetry values actually arrived
+        self._poll_ok: bool | None = None  # None until a poll cycle has run
+        self._writers: set = set()  # every open listener connection, for stop()
         self._upstream_fail_at: float = 0.0  # proxy upstream backoff clock
+        # Outcome of the latest connect to the proxy upstream: None until tried.
+        self._upstream_ok: bool | None = None
         self.log_downlink = log_downlink
         self._wialon_imei: str = learned_imei or ""
 
@@ -436,7 +455,7 @@ class VegaRuntime:
 
     async def start(self) -> None:
         self.load_scripts()  # restore slot names/scripts from disk for labels
-        self._server = await asyncio.start_server(self._handle_connection, "0.0.0.0", self.port)
+        self._server = await asyncio.start_server(self._tracked_connection, "0.0.0.0", self.port)
         self._poll_task = self.hass.async_create_background_task(
             self._poll_loop(), name=f"vega_poll_{self.imei}"
         )
@@ -461,8 +480,20 @@ class VegaRuntime:
             self._poll_task = None
         if self._server:
             self._server.close()
+            # Server.wait_closed() waits for every open connection, and a tracker
+            # on a stalled link never closes its own: drop them all first.
+            for writer in list(self._writers):
+                try:
+                    transport = getattr(writer, "transport", None)
+                    if transport is not None:
+                        transport.abort()
+                    else:
+                        writer.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            self._writers.clear()
             try:
-                await self._server.wait_closed()
+                await asyncio.wait_for(self._server.wait_closed(), STOP_TIMEOUT_SEC)
             except Exception:  # noqa: BLE001
                 pass
             self._server = None
@@ -493,8 +524,19 @@ class VegaRuntime:
         data.update(self._hv_battery.snapshot(now, is_online))
         speed = data.get("speed")
         data["is_moving"] = bool(is_online and isinstance(speed, (int, float)) and speed > 0)
-        if last_seen:
-            data["last_online"] = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(last_seen))
+        # last_online is the last time telemetry values arrived. Bare traffic
+        # (authorization, keep-alives, the tracker's own frames) keeps is_online
+        # true but does not move it: a tracker can be connected and send no data.
+        if self._last_data:
+            data["last_online"] = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(self._last_data))
+        if self._poll_ok is not None:
+            data["poll_problem"] = not self._poll_ok
+        # Present only in proxy mode, once a connect to the upstream was tried.
+        if self.proxy_mode and self._upstream_ok is not None:
+            data["upstream_ok"] = self._upstream_ok
+        # Present only while a copy server is set and delivery has been tried.
+        if self.combine_upstream is not None and self._combine_copy.alive is not None:
+            data["combine_copy_ok"] = self._combine_copy.alive
         # onboarding diagnostics
         data["learned_imei"] = self.imei if (self.imei and self.imei != DEFAULT_IMEI) else (self._wialon_imei or self.learned_imei or self.imei)
         data["pin_learned"] = bool(self.learned_pin)
@@ -536,6 +578,7 @@ class VegaRuntime:
 
     def _ingest_sensor(self, sensor: dict, *, observed: float | None = None,
                        source: str = "vega") -> None:
+        self._last_data = time.time()
         name = sensor.get("name")
         if name in HV_INPUTS:
             now = time.time()
@@ -554,6 +597,67 @@ class VegaRuntime:
             self._sensors[key] = value
 
     # --- connection demux ----------------------------------------------------
+
+    async def _tracked_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        """Listener entry point: remember the connection so stop() can drop it."""
+        self._writers.add(writer)
+        try:
+            await self._handle_connection(reader, writer)
+        finally:
+            self._writers.discard(writer)
+
+    async def _poll_sensors(self, session) -> bool:
+        """Run one sensor poll cycle on `session`; True if any value arrived.
+
+        A refusal (the tracker has no such sensor) is still an answer. Only
+        unanswered queries count as silence, and POLL_SILENT_LIMIT of them in a
+        row end the cycle early.
+        """
+        changed = False
+        replied = 0
+        silent = 0
+        for sid in protocol.SENSOR_DEFS:
+            before = getattr(session, "timeouts", 0)
+            try:
+                sensor = await session.query_sensor(sid, 0)
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Vega poll: sensor %s query failed: %s", sid, err)
+                sensor = None
+                silent += 1
+            else:
+                if getattr(session, "timeouts", 0) != before:
+                    silent += 1
+                else:
+                    silent = 0
+                    replied += 1
+            if sensor is not None:
+                self._ingest_sensor(sensor)
+                changed = True
+            if silent >= POLL_SILENT_LIMIT:
+                break
+        self._note_poll(replied > 0)
+        return changed
+
+    def _note_upstream(self, ok: bool) -> None:
+        """Record the outcome of a connect to the proxy upstream."""
+        if ok is not self._upstream_ok:
+            self._upstream_ok = ok
+            self._publish()
+
+    def _note_poll(self, ok: bool | None) -> None:
+        """Record whether the tracker answers the poll; log each transition once."""
+        if ok == self._poll_ok:
+            return
+        previous, self._poll_ok = self._poll_ok, ok
+        if ok is False:
+            _LOGGER.warning(
+                "Vega: the tracker is connected but does not answer the sensor poll; "
+                "sensor values are not being updated")
+        elif ok and previous is False:
+            _LOGGER.info("Vega: the tracker answers the sensor poll again")
+        self._publish()
 
     async def _handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         peer = writer.get_extra_info("peername")
@@ -616,9 +720,13 @@ class VegaRuntime:
         stream = combine.Stream()
         if initial:
             stream.write(initial)
+        # HA answers the tracker itself; the copy to the owner's server (if one
+        # is set) is best-effort and can never hold this connection up.
+        mirror = combine_mirror.CombineMirror(lambda: self.combine_upstream, self._combine_copy)
 
         async def _drain_frames() -> None:
-            for pkt in stream.frames():
+            for pkt, raw in stream.raw_frames():
+                mirror.feed(pkt.get("type"), raw)
                 await self._combine_packet(writer, pkt)
 
         try:
@@ -634,6 +742,7 @@ class VegaRuntime:
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Vega Combine: connection error from %s: %s", peer, err)
         finally:
+            await mirror.close()
             try:
                 writer.close()
                 await writer.wait_closed()
@@ -673,6 +782,7 @@ class VegaRuntime:
     def _ingest_combine_position(self, pos: dict) -> None:
         mapping = {"lat": "latitude", "lon": "longitude", "speed": "speed",
                    "course": "course", "alt": "altitude", "sats": "satellites", "hdop": "hdop"}
+        self._last_data = time.time()
         for src, dst in mapping.items():
             val = pos.get(src)
             if val is not None:
@@ -880,9 +990,11 @@ class VegaRuntime:
         except Exception as err:  # noqa: BLE001
             self._upstream_fail_at = time.time()
             _LOGGER.warning("Vega proxy: upstream %s unreachable: %s", self.upstream, err)
+            self._note_upstream(False)
             await self._proxy_degrade(reader, writer, initial, peer, "unreachable")
             return
         self._upstream_fail_at = 0.0  # upstream healthy again
+        self._note_upstream(True)
         _LOGGER.info(
             "Vega proxy: relaying %s <-> %s:%s (direct_control=%s)",
             peer, *self.upstream, self.direct_control,
@@ -993,14 +1105,10 @@ class VegaRuntime:
             try:
                 if self._combine_fresh():
                     # Combine push is supplying telemetry; don't poll over S4.
+                    self._note_poll(None)
                     await asyncio.sleep(self.poll_interval)
                     continue
-                changed = False
-                for sid in protocol.SENSOR_DEFS:
-                    sensor = await inject.query_sensor(sid, 0)
-                    if sensor is not None:
-                        self._ingest_sensor(sensor)
-                        changed = True
+                changed = await self._poll_sensors(inject)
                 if changed:
                     self._publish()
                 await asyncio.sleep(self.poll_interval)
@@ -1119,6 +1227,7 @@ class VegaRuntime:
         if line.startswith("#D#") or line.startswith("#SD#") or line.startswith("#B#"):
             parsed = protocol.parse_wialon_data(line)
             if parsed:
+                self._last_data = time.time()
                 params = parsed.pop("params", None)
                 for key, value in parsed.items():
                     if value is not None:
@@ -1142,13 +1251,11 @@ class VegaRuntime:
                 session = self._active_vega_session()
                 if session is not None:
                     changed = False
-                    if not self._combine_fresh():
+                    if self._combine_fresh():
                         # Combine push covers sensors; skip the redundant poll.
-                        for sid in protocol.SENSOR_DEFS:
-                            sensor = await session.query_sensor(sid, 0)
-                            if sensor is not None:
-                                self._ingest_sensor(sensor)
-                                changed = True
+                        self._note_poll(None)
+                    else:
+                        changed = await self._poll_sensors(session)
                     if self.direct_control:
                         await self._remote_state_watchdog(session)
                     if changed:

@@ -87,6 +87,80 @@ class ProxyDegradeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(w.closed)                # throttled, then closed
 
 
+class _End:
+    async def read(self, n):
+        return b""
+
+
+class _Sink:
+    def __init__(self):
+        self.closed = False
+
+    def get_extra_info(self, name):
+        return ("198.51.100.7", 4000)
+
+    def write(self, data):
+        pass
+
+    async def drain(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+class UpstreamSensorTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.rt = _runtime(self.temp.name, proxy_mode=True)
+        self.rt.hass.async_create_background_task = lambda coro, **kw: asyncio.create_task(coro)
+
+        async def poll(*args):
+            await asyncio.sleep(3600)
+        self.rt._inject_poll_loop = poll
+        self.published = []
+        self.rt.set_update_callback(lambda data: self.published.append(data.get("upstream_ok")))
+        saved = runtime_module.asyncio.open_connection
+        self.addCleanup(setattr, runtime_module.asyncio, "open_connection", saved)
+
+    def _upstream(self, outcome):
+        async def open_connection(host, port):
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+        runtime_module.asyncio.open_connection = open_connection
+
+    async def test_absent_until_a_connect_was_tried(self):
+        self.assertNotIn("upstream_ok", self.rt.snapshot())
+
+    async def test_follows_the_last_connect(self):
+        self._upstream((_End(), _Sink()))
+        await self.rt._handle_vega_proxy(_End(), _Sink(), b"")
+        self.assertIs(self.rt.snapshot()["upstream_ok"], True)
+
+        self._upstream(ConnectionRefusedError("refused"))
+        degraded = []
+
+        async def degrade(*args):
+            degraded.append(args[-1])
+        self.rt._proxy_degrade = degrade
+        await self.rt._handle_vega_proxy(_End(), _Sink(), b"")
+        self.assertIs(self.rt.snapshot()["upstream_ok"], False)
+        self.assertEqual(degraded, ["unreachable"])
+        # Inside the backoff window no connect is made and the state stays off.
+        await self.rt._handle_vega_proxy(_End(), _Sink(), b"")
+        self.assertEqual(degraded, ["unreachable", "backoff"])
+        self.assertIs(self.rt.snapshot()["upstream_ok"], False)
+        self.assertEqual([p for p in self.published if p is not None][:1], [True])
+        self.assertIs(self.published[-1], False)
+
+    async def test_absent_when_proxy_mode_is_off(self):
+        self.rt._note_upstream(True)
+        self.rt.proxy_mode = False
+        self.assertNotIn("upstream_ok", self.rt.snapshot())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
