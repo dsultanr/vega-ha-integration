@@ -210,6 +210,9 @@ _FW_IDLE_FINALIZE_SEC = 20.0  # a transfer is "done" after this quiet gap
 # decode paths. The S4 session itself stays up (Evolute proxy + on-demand
 # commands); only the periodic sensor query pauses.
 COMBINE_FRESH_SEC = 90.0
+# Combine push does not always carry every sensor (tracker_temp, firmware,
+# statuses). Keep the Vega-binary poll active so those entities stay available.
+COMBINE_PAUSE_POLL = False
 
 # How the OEM cloud keeps a Vega Binary session up: an empty device-info
 # request every 15 s. Without it a tracker drops the connection and reconnects
@@ -1389,7 +1392,7 @@ class VegaRuntime:
                 session = self._active_vega_session()
                 if session is not None:
                     changed = False
-                    if self._combine_fresh():
+                    if COMBINE_PAUSE_POLL and self._combine_fresh():
                         # Combine push covers sensors; skip the redundant poll.
                         self._note_poll(None)
                     else:
