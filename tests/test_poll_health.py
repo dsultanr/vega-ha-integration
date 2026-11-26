@@ -226,6 +226,93 @@ class PollModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.calls, SENSOR_COUNT)
 
 
+class CombineAndPollTests(unittest.IsolatedAsyncioTestCase):
+    """Wialon Combine does not pause the poll; what it delivers is not asked for again."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.rt = _runtime(self.temp.name)
+        self.rt.imei = "864000000000001"
+        self.ids = list(runtime_module.protocol.SENSOR_DEFS)
+        self.rt._combine_last_seen = time.time()  # Combine is flowing right now
+        real_sleep = asyncio.sleep
+
+        async def fast_sleep(delay):
+            await real_sleep(0)
+        runtime_module.asyncio.sleep = fast_sleep
+        self.addCleanup(setattr, runtime_module.asyncio, "sleep", real_sleep)
+        self.real_sleep = real_sleep
+
+    async def _until(self, condition):
+        for _ in range(2000):
+            if condition():
+                return
+            await self.real_sleep(0)
+        self.fail("the poll loop did not get there")
+
+    async def _stop(self, task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def test_direct_session_is_polled_while_combine_is_fresh(self):
+        session = _Session("value")
+        self.rt._vega_sessions["peer"] = session
+        task = asyncio.create_task(self.rt._poll_loop())
+        await self._until(lambda: session.calls >= SENSOR_COUNT)
+        await self._stop(task)
+        self.assertEqual(self.rt.snapshot()["polled_sensors"], SENSOR_COUNT)
+        self.assertIs(self.rt.snapshot()["poll_problem"], False)
+
+    async def test_relayed_session_is_polled_while_combine_is_fresh(self):
+        session = _Session("value")
+        session.authenticated_event = asyncio.Event()
+        session.authenticated_event.set()
+        task = asyncio.create_task(self.rt._inject_poll_loop(session))
+        await self._until(lambda: session.calls >= SENSOR_COUNT)
+        await self._stop(task)
+        self.assertEqual(self.rt.snapshot()["polled_sensors"], SENSOR_COUNT)
+
+    async def test_sensors_delivered_by_combine_are_not_polled_in_missing_mode(self):
+        session = _Session("value")
+        await self.rt._poll_sensors(session)  # the complete first cycle
+        delivered = self.ids[:4]
+        for sid in delivered:
+            self.rt._ingest_combine_param({"id": sid, "value": 1, "text": "x"}, observed=time.time())
+        asked = []
+
+        async def query(sensor_id, sub_id=0):
+            asked.append(sensor_id)
+            return {"name": "soc", "value": 55}
+        session.query_sensor = query
+        await self.rt._poll_sensors(session)
+        self.assertEqual(sorted(asked), sorted(self.ids[4:]))
+        self.assertEqual(self.rt.snapshot()["polled_sensors"], SENSOR_COUNT - 4)
+
+    async def test_hv_inputs_from_combine_count_as_delivered(self):
+        names = {d["name"]: sid for sid, d in runtime_module.protocol.SENSOR_DEFS.items()}
+        for name in ("hv_battery_voltage", "hv_battery_current"):
+            self.rt._ingest_combine_param({"id": names[name], "value": 350.0}, observed=time.time())
+            self.assertIn(names[name], self.rt._sensor_seen)
+
+    async def test_replayed_combine_history_does_not_count_as_delivered(self):
+        sid = self.ids[0]
+        self.rt._ingest_combine_param({"id": sid, "value": 1, "text": "x"}, observed=time.time() - 3600)
+        self.assertNotIn(sid, self.rt._sensor_seen)
+
+    async def test_all_mode_still_polls_what_combine_delivers(self):
+        self.rt.poll_mode = "all"
+        for sid in self.ids:
+            self.rt._ingest_combine_param({"id": sid, "value": 1, "text": "x"}, observed=time.time())
+        session = _Session("value")
+        await self.rt._poll_sensors(session)
+        await self.rt._poll_sensors(session)
+        self.assertEqual(session.calls, 2 * SENSOR_COUNT)
+
+
 class DataFlowTests(unittest.IsolatedAsyncioTestCase):
     """The problem flag when little or nothing is polled."""
 

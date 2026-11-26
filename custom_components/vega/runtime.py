@@ -204,15 +204,12 @@ _FW_CMD_NAMES = {
 }
 _FW_IDLE_FINALIZE_SEC = 20.0  # a transfer is "done" after this quiet gap
 
-# While Wialon Combine push has delivered telemetry this recently, the Vega
-# binary poll is skipped: the push already carries the sensor set, so polling
-# would be redundant tracker load and could make values flap between the two
-# decode paths. The S4 session itself stays up (Evolute proxy + on-demand
-# commands); only the periodic sensor query pauses.
-COMBINE_FRESH_SEC = 90.0
-# Combine push does not always carry every sensor (tracker_temp, firmware,
-# statuses). Keep the Vega-binary poll active so those entities stay available.
-COMBINE_PAUSE_POLL = False
+# Wialon Combine does not pause the Vega Binary poll. It used to, on the
+# assumption that the push carries the whole sensor set; a tracker sends over
+# Combine only what its transmit settings select (four sensors in one reported
+# setup), and everything else went stale. What the push did deliver is instead
+# remembered per sensor (_sensor_seen), so the "missing" poll mode skips exactly
+# those and no value is fed from two decode paths at once.
 
 # How the OEM cloud keeps a Vega Binary session up: an empty device-info
 # request every 15 s. Without it a tracker drops the connection and reconnects
@@ -222,8 +219,8 @@ KEEPALIVE_SEC = 15.0
 # may change the current state; older ones are acknowledged and left alone.
 RECORD_FRESH_SEC = 120.0
 SENSOR_HDOP = 106
-# In the "missing" poll mode a sensor is asked for only if no tracker record
-# carried it this recently. Trackers send a sensor every 200 s plus on change.
+# In the "missing" poll mode a sensor is asked for only if neither a tracker
+# record nor Wialon Combine carried it this recently. Trackers send a sensor every 200 s plus on change.
 RECORD_COVER_SEC = 300.0
 # The tracker is connected yet silent: no record and no poll answer this long.
 # With queries going unanswered the shorter limit applies.
@@ -434,7 +431,7 @@ class VegaRuntime:
         self._last_data: float = 0.0  # last time telemetry values actually arrived
         self._record_time: int = 0  # time of the newest tracker record applied
         self.poll_mode = poll_mode
-        self._sensor_seen: dict[int, float] = {}  # sensor id -> when a record last carried it
+        self._sensor_seen: dict[int, float] = {}  # sensor id -> when a record or Combine last carried it
         self._last_answer: float = 0.0  # last record or poll answer of any kind
         self._polled_count: int | None = None  # sensors asked for in the last cycle
         self._poll_ok: bool | None = None  # None until a poll cycle has run
@@ -920,6 +917,11 @@ class VegaRuntime:
         value = p.get("text") if sdef.get("type") == "string" else p.get("value")
         if value is None:
             return
+        # Delivered by the push, so the "missing" poll mode need not ask for it.
+        # Replayed history does not count: it says nothing about what arrives now.
+        now = time.time()
+        if observed is None or abs(now - observed) <= RECORD_FRESH_SEC:
+            self._sensor_seen[sid] = now
         if sdef["name"] in HV_INPUTS:
             self._ingest_sensor({"name": sdef["name"], "value": value},
                                 observed=observed, source="combine")
@@ -939,15 +941,6 @@ class VegaRuntime:
                 return
         # One ingest path (applies SENSOR_KEY_MAP + the central_lock inversion).
         self._ingest_sensor({"name": sdef["name"], "value": value})
-
-    def _combine_fresh(self) -> bool:
-        """True while Wialon Combine push has recently supplied telemetry.
-
-        Used to pause the Vega-binary sensor poll (poll-free mode) without
-        tearing down the S4 session, which stays up for the Evolute proxy and
-        on-demand commands.
-        """
-        return (time.time() - self._combine_last_seen) < COMBINE_FRESH_SEC
 
     # --- optional downlink (HA -> tracker) packet log ------------------------
 
@@ -1239,11 +1232,6 @@ class VegaRuntime:
 
         while True:
             try:
-                if self._combine_fresh():
-                    # Combine push is supplying telemetry; don't poll over S4.
-                    self._note_poll(None)
-                    await asyncio.sleep(self.poll_interval)
-                    continue
                 changed = await self._poll_sensors(inject)
                 if changed:
                     self._publish()
@@ -1391,12 +1379,7 @@ class VegaRuntime:
             try:
                 session = self._active_vega_session()
                 if session is not None:
-                    changed = False
-                    if COMBINE_PAUSE_POLL and self._combine_fresh():
-                        # Combine push covers sensors; skip the redundant poll.
-                        self._note_poll(None)
-                    else:
-                        changed = await self._poll_sensors(session)
+                    changed = await self._poll_sensors(session)
                     if self.direct_control:
                         await self._remote_state_watchdog(session)
                     if changed:
